@@ -1,0 +1,15 @@
+pycache/
+*.py[cod]
+*$py.class
+old/
+*.log
+*.png
+*.pgw
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+TEMP_*.tif
+**/tiles_/
+**/kacheln_/
+!*.gpkg
