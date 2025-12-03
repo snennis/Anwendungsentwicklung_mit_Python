@@ -13,3 +13,4 @@ TEMP_*.tif
 **/tiles_/
 **/kacheln_/
 *.gpkg
+*/cache/
