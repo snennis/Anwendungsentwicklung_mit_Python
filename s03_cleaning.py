@@ -21,7 +21,7 @@ LAYERS_TO_CLEAN = [
 # Cache für die Grenze, damit wir sie nicht 4x laden müssen
 _BERLIN_BOUNDARY_CACHE = None
 
-def get_berlin_shape():
+def get_city_shape(city: str):
     """Lädt die exakte Grenze von Berlin (ohne Brandenburg)."""
     global _BERLIN_BOUNDARY_CACHE
     if _BERLIN_BOUNDARY_CACHE is not None:
@@ -30,7 +30,7 @@ def get_berlin_shape():
     print("   🏙️ Lade Berlin-Grenze für Clipping...")
     try:
         # Lade Berlin
-        gdf = ox.geocode_to_gdf("Berlin, Germany")
+        gdf = ox.geocode_to_gdf(city)
         # Reprojizieren
         gdf = gdf.to_crs(ANALYSIS_CRS)
         # Dissolve (falls mehrere Teile)
@@ -63,7 +63,7 @@ def clean_geometry_layer(config):
             gdf = gdf.to_crs(ANALYSIS_CRS)
 
         # 3. HARD CLIPPING (Alles außerhalb von Berlin abschneiden)
-        berlin_shape = get_berlin_shape()
+        berlin_shape = get_city_shape("Berlin, Germany")
         
         # Clip führt einen geometrischen Schnitt durch
         # Wir nutzen geopandas clip (ab Version 0.7 verfügbar)

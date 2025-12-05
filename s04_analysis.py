@@ -83,7 +83,7 @@ def main():
 
     # 4. WHITE SPOTS (Referenz ist jetzt NUR Berlin)
     logging.info("Suche White Spots in Berlin...")
-    boundary = get_boundary_berlin_only("Berlin, Germany")
+    boundary = get_boundary("Berlin, Germany")
     
     all_infra = pd.concat([gdf_tk_total, gdf_tk_plan, gdf_vf_1000])
     if not all_infra.empty:
