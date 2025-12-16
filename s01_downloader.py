@@ -8,10 +8,10 @@ from tqdm import tqdm
 
 # --- KONFIGURATION ---
 ANALYSE_BBOX = {
-   "X_START": 1250000.0,
-   "Y_START": 7080000.0,
-   "X_ENDE": 1660000.0,
-   "Y_ENDE": 6750000.0
+   "X_START": 1450000.0,
+   "Y_START": 6940000.0,
+   "X_ENDE": 1540000.0,
+   "Y_ENDE": 6840000.0
 }
 
 HAUPTORDNER = "Glasfaser_Analyse_Project"

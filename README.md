@@ -28,12 +28,16 @@ graph LR
     A[01 Downloader] -->|Raw Tiles| B[02 Processor]
     B -->|Raw Vectors| C[03 Cleaner]
     C -->|Clean Vectors| D[04 Analyzer]
-    D -->|Insights| E[GeoPackage / Stats]
+    D -->|Base Analysis| E[05 Enrichment]
+    E -->|Insights| F[06 Visualization]
+    F -->|Maps| G[GeoPackage / PNG / HTML]
     style A fill:#f9f,stroke:#333,stroke-width:2px
     style B fill:#bbf,stroke:#333,stroke-width:2px
     style C fill:#bfb,stroke:#333,stroke-width:2px
     style D fill:#fbf,stroke:#333,stroke-width:2px
-    style E fill:#ff9,stroke:#333,stroke-width:2px
+    style E fill:#fc9,stroke:#333,stroke-width:2px
+    style F fill:#ff9,stroke:#333,stroke-width:2px
+    style G fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
 ### 1. Download Phase (`s01_downloader.py`)
@@ -48,6 +52,16 @@ Geometrische Reparatur der Rohdaten. Wendet einen **Buffer-Dissolve-Unbuffer** A
 ### 4. Analysis Phase (`s04_analysis.py`)
 Führt die Mengenlehre (Intersection, Difference, Union) auf den bereinigten Layern durch. Projiziert Daten nach **EPSG:25833 (ETRS89 / UTM zone 33N)** für präzise Flächenberechnungen in km².
 
+### 5. Enrichment Phase (`s05_enrichment.py`)
+Verknüpft die Analyse-Ergebnisse mit Kontextdaten:
+*   **B2B-Potential**: Identifiziert unversorgte Gewerbegebiete durch Verschneidung mit OSM-Landuse-Daten.
+*   **Kiez-Analyse**: Aggregiert Versorgungslücken auf Ebene der Berliner Planungsräume (LOR), um unterversorgte Wohngegenden zu lokalisieren.
+
+### 6. Visualization Phase (`s06_visualization.py`)
+Erstellt visuelle Repräsentationen der Analyseergebnisse:
+*   **Strategie-Karte (PNG)**: Statische Karte mit Corporate-Identity-Farben für Präsentationen.
+*   **Interaktive Web-Karte (HTML)**: Folium-basierte Karte mit Layer-Control (Telekom, Vodafone, Wettbewerb, Lücken, Geplant) und Choropleth-Darstellung der Bezirksversorgung.
+
 ---
 
 ## 📂 Directory Structure
@@ -59,6 +73,8 @@ Führt die Mengenlehre (Intersection, Difference, Union) auf den bereinigten Lay
 ├── s02_processor.py       # Raster processing
 ├── s03_cleaning.py        # Geometry cleaning
 ├── s04_analysis.py        # Spatial analysis
+├── s05_enrichment.py      # Context enrichment
+├── s06_visualization.py   # Map generation
 ├── requirements.txt       # Dependencies
 └── Glasfaser_Analyse_Project/  # Output directory
 ```
@@ -101,7 +117,10 @@ python pipeline_manager.py
 ### Output
 Die Ergebnisse landen im Ordner `Glasfaser_Analyse_Project`:
 *   `pipeline_run.log`: Detaillierte Logs aller Schritte.
-*   `04_analysis_merged.gpkg`: Das finale GeoPackage mit allen Layern (Wettbewerb, Monopole, White Spots) und Attributen.
+*   `04_analysis_merged.gpkg`: Das Basis-Ergebnis mit Wettbewerbs-Daten.
+*   `05_enriched_analysis.gpkg`: Das finale GeoPackage angereichert um B2B- und Kiez-Daten.
+*   `berlin_strategie_karte.png`: Statische Übersichtskarte.
+*   `berlin_interaktiv.html`: Interaktive Karte zur Detailanalyse.
 
 ---
 
