@@ -1,56 +1,37 @@
 import os
 import geopandas as gpd
 import pandas as pd
-import osmnx as ox
-import numpy as np
 import logging
 import warnings
+import config
+import utils
 
 # Warnungen bei GeoPandas Overlay unterdrücken
 warnings.filterwarnings("ignore")
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-INPUT_GPKG = os.path.join(HAUPTORDNER, "04_analysis_merged.gpkg")
-OUTPUT_GPKG = os.path.join(HAUPTORDNER, "05_master_analysis.gpkg")
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "05_enrichment.log")
-ANALYSIS_CRS = "EPSG:25833" # UTM 33N (Berlin Standard)
-
-# --- WFS QUELLEN (Berlin Open Data) ---
-# Bezirke (Verwaltung)
-URL_BEZIRKE = "https://gdi.berlin.de/services/wfs/alkis_bezirke?service=wfs&version=2.0.0&request=GetFeature&typeNames=alkis_bezirke:bezirksgrenzen&outputFormat=application/json&srsName=EPSG:25833"
-
-# Flächennutzung (Umweltatlas)
-URL_ISU5 = "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?service=wfs&version=2.0.0&request=GetFeature&typeNames=ua_flaechennutzung:c_reale_nutzung_2023&outputFormat=application/json&srsName=EPSG:25833"
-
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[logging.FileHandler(LOG_DATEINAME, mode='w', encoding='utf-8'), logging.StreamHandler()]
-    )
-
 def load_layer_safe(path, layer=None):
+    logger = logging.getLogger("ENRICHMENT")
     if not os.path.exists(path):
         return gpd.GeoDataFrame()
     try:
         gdf = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
-        if gdf.crs != ANALYSIS_CRS:
-            gdf = gdf.to_crs(ANALYSIS_CRS)
+        if gdf.crs != config.ANALYSIS_CRS:
+            gdf = gdf.to_crs(config.ANALYSIS_CRS)
         return gdf
     except Exception as e:
-        logging.error(f"Ladefehler {path}: {e}")
+        logger.error(f"Ladefehler {path}: {e}")
         return gpd.GeoDataFrame()
 
 def get_wfs_data(url, name):
-    logging.info(f"Lade {name} von GDI Berlin...")
+    logger = logging.getLogger("ENRICHMENT")
+    logger.info(f"Lade {name} von GDI Berlin...")
     try:
         gdf = gpd.read_file(url)
-        if gdf.crs != ANALYSIS_CRS:
-            gdf = gdf.to_crs(ANALYSIS_CRS)
+        if gdf.crs != config.ANALYSIS_CRS:
+            gdf = gdf.to_crs(config.ANALYSIS_CRS)
         return gdf
     except Exception as e:
-        logging.error(f"Download Fehler {name}: {e}")
+        logger.error(f"Download Fehler {name}: {e}")
         return gpd.GeoDataFrame()
 
 def determine_landuse_category(row, cols):
@@ -91,36 +72,36 @@ def simplify_fiber_status(status_str):
     return "Kein Netz"
 
 def main():
-    setup_logging()
-    logging.info("🚀 STARTE ENRICHMENT (V3 - Fix Klassifizierung)")
+    logger = utils.setup_logger("ENRICHMENT", config.LOG_FILES["s05"])
+    logger.info("🚀 STARTE ENRICHMENT (V3 - Fix Klassifizierung)")
 
     # 1. DATEN LADEN
-    gdf_fiber = load_layer_safe(INPUT_GPKG, layer="analyse_berlin")
+    gdf_fiber = load_layer_safe(config.GPKG_FILES["analysis_merged"], layer="analyse_berlin")
     if gdf_fiber.empty:
-        logging.error("Keine Glasfaser-Daten. Abbruch.")
+        logger.error("Keine Glasfaser-Daten. Abbruch.")
         return
     
-    gdf_bezirke = get_wfs_data(URL_BEZIRKE, "Bezirke")
-    gdf_isu = get_wfs_data(URL_ISU5, "Flächennutzung")
+    gdf_bezirke = get_wfs_data(config.URLS["bezirke"], "Bezirke")
+    gdf_isu = get_wfs_data(config.URLS["flaechennutzung"], "Flächennutzung")
     
     if gdf_isu.empty or gdf_bezirke.empty:
-        logging.error("Basisdaten fehlen (WFS Fehler).")
+        logger.error("Basisdaten fehlen (WFS Fehler).")
         return
 
     # 2. VORBEREITUNG FLÄCHENNUTZUNG
-    logging.info(f"Klassifiziere {len(gdf_isu)} Nutzungsblöcke...")
-    logging.info(f"ISU Spalten (Check): {list(gdf_isu.columns)}")
+    logger.info(f"Klassifiziere {len(gdf_isu)} Nutzungsblöcke...")
+    logger.info(f"ISU Spalten (Check): {list(gdf_isu.columns)}")
     
     gdf_isu['kategorie'] = gdf_isu.apply(lambda row: determine_landuse_category(row, gdf_isu.columns), axis=1)
     gdf_isu['is_relevant'] = gdf_isu['kategorie'].isin(['Wohnen', 'Gewerbe', 'Öffentlich'])
     
-    logging.info("Verteilung Nutzung (Neu):")
+    logger.info("Verteilung Nutzung (Neu):")
     # Zeige die Statistik im Log, damit wir sofort sehen, ob es geklappt hat
     counts = gdf_isu['kategorie'].value_counts()
     print(counts)
     
     if counts.get('Wohnen', 0) == 0 and counts.get('Gewerbe', 0) == 0:
-        logging.error("❌ FEHLER: Immer noch alles 'Sonstiges'. Prüfe die 'nutzung' Spalte!")
+        logger.error("❌ FEHLER: Immer noch alles 'Sonstiges'. Prüfe die 'nutzung' Spalte!")
         # Debugging: Zeige erste Zeilen der relevanten Spalten
         cols_debug = [c for c in gdf_isu.columns if 'nutz' in c.lower()]
         print("Beispiel-Daten (Nutzung):")
@@ -128,11 +109,11 @@ def main():
         return
 
     # 3. LAYER 1: DIE VERSORGUNGS-KARTE
-    logging.info("Erstelle Layer 1: Versorgungs-Karte (Verschneidung)...")
+    logger.info("Erstelle Layer 1: Versorgungs-Karte (Verschneidung)...")
     
     gdf_fiber_active = gdf_fiber[gdf_fiber['status'] != 'White Spot'].copy()
     
-    logging.info("   -> Verschneide Nutzung mit Infrastruktur...")
+    logger.info("   -> Verschneide Nutzung mit Infrastruktur...")
     gdf_intersect = gpd.overlay(
         gdf_isu[['kategorie', 'is_relevant', 'geometry']], 
         gdf_fiber_active[['status', 'geometry']], 
@@ -143,10 +124,10 @@ def main():
     gdf_relevant_landuse = gdf_isu[gdf_isu['is_relevant'] == True]
     
     if gdf_relevant_landuse.empty:
-        logging.warning("⚠️ ACHTUNG: Keine relevanten Nutzflächen gefunden! (Sollte mit Fix nicht mehr passieren)")
+        logger.warning("⚠️ ACHTUNG: Keine relevanten Nutzflächen gefunden! (Sollte mit Fix nicht mehr passieren)")
         gdf_gaps = gpd.GeoDataFrame()
     else:
-        logging.info(f"   -> Berechne Versorgungslücken für {len(gdf_relevant_landuse)} relevante Blöcke...")
+        logger.info(f"   -> Berechne Versorgungslücken für {len(gdf_relevant_landuse)} relevante Blöcke...")
         if not gdf_fiber_active.empty:
             fiber_union = gdf_fiber_active.dissolve()
             gdf_gaps = gpd.overlay(gdf_relevant_landuse[['kategorie', 'is_relevant', 'geometry']], fiber_union, how='difference')
@@ -159,7 +140,7 @@ def main():
     gdf_map_layer = pd.concat([gdf_intersect, gdf_gaps], ignore_index=True)
     
     # 4. LAYER 2: BEZIRKS-STATISTIK
-    logging.info("Erstelle Layer 2: Bezirks-Statistik...")
+    logger.info("Erstelle Layer 2: Bezirks-Statistik...")
     
     # Robuste Spaltensuche für Bezirke
     bez_col = None
@@ -173,11 +154,11 @@ def main():
         # Fallback auf Index oder erste String-Spalte
         valid_cols = [c for c in gdf_bezirke.columns if c.lower() not in ['geometry', 'gml_id', 'id']]
         bez_col = valid_cols[0] if valid_cols else 'id'
-        logging.info(f"Nutze Fallback-Spalte '{bez_col}' als Bezirksname.")
+        logger.info(f"Nutze Fallback-Spalte '{bez_col}' als Bezirksname.")
 
     if not gdf_map_layer.empty:
         gdf_map_layer['centroid'] = gdf_map_layer.geometry.centroid
-        join_geo = gpd.GeoDataFrame(gdf_map_layer.drop(columns='geometry'), geometry='centroid', crs=ANALYSIS_CRS)
+        join_geo = gpd.GeoDataFrame(gdf_map_layer.drop(columns='geometry'), geometry='centroid', crs=config.ANALYSIS_CRS)
         
         joined = gpd.sjoin(join_geo, gdf_bezirke[[bez_col, 'geometry']], how='inner', predicate='within')
         joined['area_m2'] = gdf_map_layer.geometry.area
@@ -221,18 +202,19 @@ def main():
         gdf_district_stats = gpd.GeoDataFrame()
 
     # 5. SPEICHERN
-    if os.path.exists(OUTPUT_GPKG): os.remove(OUTPUT_GPKG)
+    output_gpkg = config.GPKG_FILES["master_analysis"]
+    if os.path.exists(output_gpkg): os.remove(output_gpkg)
     
-    logging.info(f"Speichere Ergebnisse in {OUTPUT_GPKG}...")
+    logger.info(f"Speichere Ergebnisse in {output_gpkg}...")
     
     if not gdf_map_layer.empty:
         cols_export = ['kategorie', 'versorgung_visual', 'is_relevant', 'geometry']
-        gdf_map_layer[cols_export].to_file(OUTPUT_GPKG, layer="map_detail_nutzung", driver="GPKG")
+        gdf_map_layer[cols_export].to_file(output_gpkg, layer="map_detail_nutzung", driver="GPKG")
     
     if not gdf_district_stats.empty:
-        gdf_district_stats.to_file(OUTPUT_GPKG, layer="map_stats_bezirke", driver="GPKG")
+        gdf_district_stats.to_file(output_gpkg, layer="map_stats_bezirke", driver="GPKG")
     
-    logging.info("✅ Fertig.")
+    logger.info("✅ Fertig.")
 
 if __name__ == "__main__":
     main()

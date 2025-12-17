@@ -69,6 +69,8 @@ Erstellt visuelle Repräsentationen der Analyseergebnisse:
 ```text
 .
 ├── pipeline_manager.py    # Main entry point
+├── config.py              # Central configuration
+├── utils.py               # Shared utilities (Logging, Geo)
 ├── s01_downloader.py      # Data ingestion
 ├── s02_processor.py       # Raster processing
 ├── s03_cleaning.py        # Geometry cleaning

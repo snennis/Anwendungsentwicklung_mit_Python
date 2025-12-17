@@ -1,71 +1,45 @@
 import os
 import geopandas as gpd
 import pandas as pd
-import osmnx as ox
-from shapely.geometry import box
 import logging
-
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-OUTPUT_GPKG = os.path.join(HAUPTORDNER, "04_analysis_merged.gpkg")
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "04_analysis.log")
-ANALYSIS_CRS = "EPSG:25833" 
-
-INPUT_FILES = {
-    "tk_2000": "clean_tk_2000.gpkg",
-    "tk_1000": "clean_tk_1000.gpkg",
-    "tk_plan": "clean_tk_plan.gpkg",
-    "vf_1000": "clean_vf_1000.gpkg"
-}
-
-def setup_logging():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s',
-                        handlers=[logging.FileHandler(LOG_DATEINAME, mode='w'), logging.StreamHandler()])
+import config
+import utils
 
 def load_clean_layer(key: str) -> gpd.GeoDataFrame:
-    filepath = os.path.join(HAUPTORDNER, INPUT_FILES[key])
-    if not os.path.exists(filepath):
-        return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=ANALYSIS_CRS)
+    filepath = config.GPKG_FILES[key]
+    logger = logging.getLogger("ANALYSIS")
     
-    logging.info(f"Lade {key}...")
+    if not os.path.exists(filepath):
+        return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=config.ANALYSIS_CRS)
+    
+    logger.info(f"Lade {key}...")
     gdf = gpd.read_file(filepath)
-    if gdf.crs != ANALYSIS_CRS:
-        gdf = gdf.to_crs(ANALYSIS_CRS)
+    if gdf.crs != config.ANALYSIS_CRS:
+        gdf = gdf.to_crs(config.ANALYSIS_CRS)
     return gdf
-
-def get_boundary(city: str):
-    """Lädt NUR Berlin als Referenzfläche."""
-    logging.info("Lade Stadtgrenze Berlin...")
-    try:
-        gdf_berlin = ox.geocode_to_gdf(city)
-        return gdf_berlin.to_crs(ANALYSIS_CRS).dissolve()
-    except:
-        logging.warning("OSM Fehler. Nutze BBox Fallback.")
-        bbox = box(360000, 5800000, 420000, 5860000) 
-        return gpd.GeoDataFrame({'geometry': [bbox]}, crs="EPSG:25833")
 
 def calculate_area_km2(gdf):
     if gdf.empty: return 0.0
     return gdf.geometry.area.sum() / 1_000_000
 
 def main():
-    setup_logging()
-    logging.info("🚀 Starte Analyse (Fokus: Berlin)")
+    logger = utils.setup_logger("ANALYSIS", config.LOG_FILES["s04"])
+    logger.info("🚀 Starte Analyse (Fokus: Berlin)")
 
     # 1. LADEN
-    gdf_tk_2000 = load_clean_layer("tk_2000")
-    gdf_tk_1000 = load_clean_layer("tk_1000")
-    gdf_tk_plan = load_clean_layer("tk_plan")
-    gdf_vf_1000 = load_clean_layer("vf_1000")
+    gdf_tk_2000 = load_clean_layer("clean_tk_2000")
+    gdf_tk_1000 = load_clean_layer("clean_tk_1000")
+    gdf_tk_plan = load_clean_layer("clean_tk_plan")
+    gdf_vf_1000 = load_clean_layer("clean_vf_1000")
 
     # 2. AGGREGATION
-    logging.info("Verschmelze Telekom Bestand...")
+    logger.info("Verschmelze Telekom Bestand...")
     gdf_tk_total = pd.concat([gdf_tk_2000, gdf_tk_1000])
     if not gdf_tk_total.empty: gdf_tk_total = gdf_tk_total.dissolve()
 
     # 3. MARKTSITUATION
-    logging.info("Analysiere Wettbewerb...")
-    gdf_competition = gpd.GeoDataFrame(columns=['geometry'], crs=ANALYSIS_CRS)
+    logger.info("Analysiere Wettbewerb...")
+    gdf_competition = gpd.GeoDataFrame(columns=['geometry'], crs=config.ANALYSIS_CRS)
     gdf_monopol_tk = gdf_tk_total.copy()
     gdf_monopol_vf = gdf_vf_1000.copy()
 
@@ -82,8 +56,8 @@ def main():
     gdf_monopol_vf['type'] = 'Bestand'
 
     # 4. WHITE SPOTS (Referenz ist jetzt NUR Berlin)
-    logging.info("Suche White Spots in Berlin...")
-    boundary = get_boundary("Berlin, Germany")
+    logger.info("Suche White Spots in Berlin...")
+    boundary = utils.get_berlin_boundary()
     
     all_infra = pd.concat([gdf_tk_total, gdf_tk_plan, gdf_vf_1000])
     if not all_infra.empty:
@@ -116,9 +90,10 @@ def main():
     print(stats.round(2))
     print("="*30 + "\n")
 
-    if os.path.exists(OUTPUT_GPKG): os.remove(OUTPUT_GPKG)
-    gdf_final.to_file(OUTPUT_GPKG, layer="analyse_berlin", driver="GPKG")
-    logging.info("✅ Fertig.")
+    output_path = config.GPKG_FILES["analysis_merged"]
+    if os.path.exists(output_path): os.remove(output_path)
+    gdf_final.to_file(output_path, layer="analyse_berlin", driver="GPKG")
+    logger.info("✅ Fertig.")
 
 if __name__ == "__main__":
     main()

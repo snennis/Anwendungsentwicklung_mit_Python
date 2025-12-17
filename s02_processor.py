@@ -6,6 +6,8 @@ from typing import List, Tuple
 from dataclasses import dataclass
 from tqdm import tqdm
 import numpy as np
+import config
+import utils
 
 # --- ENVIRONMENT FIX (für PROJ/GDAL) ---
 try:
@@ -33,15 +35,11 @@ try:
 except ImportError:
     SCIPY_AVAILABLE = False
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "02_processing.log")
-
 @dataclass
 class ExtractionRule:
     name: str
     color_rgba: Tuple[int, int, int, int]
-    output_gpkg: str
+    output_key: str  # Changed from output_gpkg to key in config
     layer_name: str
 
 @dataclass
@@ -82,40 +80,42 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
         pass
     return features
 
-def process_layer_stream(config: ProcessConfig):
-    tile_dir = os.path.join(HAUPTORDNER, config.subdir)
+def process_layer_stream(process_cfg: ProcessConfig):
+    tile_dir = os.path.join(config.HAUPTORDNER, process_cfg.subdir)
     files = glob.glob(os.path.join(tile_dir, "*.png"))
     valid_files = [f for f in files if os.path.exists(f.replace(".png", ".pgw"))]
     
-    print(f"⚙️ Verarbeite {config.name} ({len(valid_files)} Kacheln)...")
+    logger = logging.getLogger("PROCESSOR")
+    logger.info(f"⚙️ Verarbeite {process_cfg.name} ({len(valid_files)} Kacheln)...")
     
-    for rule in config.rules:
+    for rule in process_cfg.rules:
         all_features = []
         for fp in tqdm(valid_files, desc=f"  -> {rule.name}", unit="tile", colour="blue"):
             all_features.extend(process_single_file(fp, rule))
             
         if all_features:
-            out_path = os.path.join(HAUPTORDNER, rule.output_gpkg)
-            # Speichert als "raw_" um Verwechslung zu vermeiden, oder direkt der Name
-            # Wir behalten den Namen, Skript 03 wird ihn als Input nutzen.
+            # Hole den Pfad aus Config
+            out_path = config.GPKG_FILES[rule.output_key]
+            
             gdf = geopandas.GeoDataFrame(all_features, crs="EPSG:3857")
             gdf.to_file(out_path, driver="GPKG", layer=rule.layer_name)
-            print(f"     ✅ Gespeichert: {rule.output_gpkg} ({len(gdf)} Features)")
+            logger.info(f"     ✅ Gespeichert: {out_path} ({len(gdf)} Features)")
         else:
-            print(f"     ℹ️ Leer: {rule.name}")
+            logger.info(f"     ℹ️ Leer: {rule.name}")
 
 def main():
-    if not os.path.exists(HAUPTORDNER): return
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_DATEINAME, mode='w')])
+    logger = utils.setup_logger("PROCESSOR", config.LOG_FILES["s02"])
+    
+    if not os.path.exists(config.HAUPTORDNER): return
     
     LAYERS = [
         ProcessConfig("Telekom Fiber", "tiles_tk_fiber", [
-            ExtractionRule("2000 Mbit", hex_to_rgba("#610332"), "raw_tk_2000.gpkg", "2000"),
-            ExtractionRule("1000 Mbit", hex_to_rgba("#7D4443"), "raw_tk_1000.gpkg", "1000"),
-            ExtractionRule("Geplant", hex_to_rgba("#314EA5"), "raw_tk_plan.gpkg", "Plan"),
+            ExtractionRule("2000 Mbit", hex_to_rgba("#610332"), "raw_tk_2000", "2000"),
+            ExtractionRule("1000 Mbit", hex_to_rgba("#7D4443"), "raw_tk_1000", "1000"),
+            ExtractionRule("Geplant", hex_to_rgba("#314EA5"), "raw_tk_plan", "Plan"),
         ]),
         ProcessConfig("Vodafone Fiber", "tiles_vf_fiber", [
-            ExtractionRule("1000 Mbit", hex_to_rgba("#7F0000"), "raw_vf_1000.gpkg", "1000")
+            ExtractionRule("1000 Mbit", hex_to_rgba("#7F0000"), "raw_vf_1000", "1000")
         ])
     ]
     for layer in LAYERS: process_layer_stream(layer)

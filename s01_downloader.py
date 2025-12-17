@@ -5,17 +5,10 @@ from typing import Dict, Any, List
 from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
+import config
+import utils
 
-# --- KONFIGURATION ---
-ANALYSE_BBOX = {
-   "X_START": 1450000.0,
-   "Y_START": 6940000.0,
-   "X_ENDE": 1540000.0,
-   "Y_ENDE": 6840000.0
-}
-
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "download.log")
+# --- KONFIGURATION LOKAL (Nur für Downloader relevant) ---
 MAX_WORKERS = 20
 
 @dataclass
@@ -109,10 +102,9 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict, output_base: str) -> List[Down
     return tasks
 
 def main():
-    if not os.path.exists(HAUPTORDNER): os.makedirs(HAUPTORDNER)
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_DATEINAME, mode='w')])
+    logger = utils.setup_logger("DOWNLOADER", config.LOG_FILES["s01"])
     
-    print("🚀 Starte Download-Phase...")
+    logger.info("🚀 Starte Download-Phase...")
 
     # Grid Parameter (Optimiert)
     tk_res = (1488381.81 - 1487158.82) / 256.0
@@ -131,14 +123,14 @@ def main():
 
     all_tasks = []
     for layer in CONFIGS:
-        tasks = prepare_tasks(layer, ANALYSE_BBOX, HAUPTORDNER)
+        tasks = prepare_tasks(layer, config.DOWNLOAD_BBOX, config.HAUPTORDNER)
         all_tasks.extend(tasks)
-        print(f"  -> {layer.name}: {len(tasks)} Kacheln.")
+        logger.info(f"  -> {layer.name}: {len(tasks)} Kacheln.")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
         list(tqdm(executor.map(download_worker, all_tasks), total=len(all_tasks), unit="img", colour="green"))
 
-    print("✅ Download abgeschlossen.")
+    logger.info("✅ Download abgeschlossen.")
 
 if __name__ == "__main__":
     main()

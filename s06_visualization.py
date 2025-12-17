@@ -5,55 +5,38 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import folium
 from folium.plugins import Fullscreen
-import logging
-
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-INPUT_GPKG = os.path.join(HAUPTORDNER, "05_master_analysis.gpkg")
-OUTPUT_MAP_PNG = os.path.join(HAUPTORDNER, "berlin_strategie_karte.png")
-OUTPUT_MAP_HTML = os.path.join(HAUPTORDNER, "berlin_interaktiv.html")
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "06_visualization.log")
-
-# Farben (Corporate Identity orientiert)
-COLORS = {
-    "Wettbewerb": "#228B22",       # Forest Green (Alles super)
-    "Telekom": "#E20074",          # Telekom Magenta
-    "Vodafone": "#E60000",         # Vodafone Rot
-    "Geplant": "#1E90FF",          # Dodger Blue
-    "Lücke (White Spot)": "#FF8C00",# Dark Orange (Warnung!)
-    "Sonstiges": "#D3D3D3"         # Light Grey (Hintergrund)
-}
-
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[logging.FileHandler(LOG_DATEINAME, mode='w', encoding='utf-8'), logging.StreamHandler()]
-    )
+import config
+import utils
 
 def main():
-    setup_logging()
-    logging.info("🚀 STARTE VISUALISIERUNG")
+    logger = utils.setup_logger("VISUALIZATION", config.LOG_FILES["s06"])
+    logger.info("🚀 STARTE VISUALISIERUNG")
 
-    if not os.path.exists(INPUT_GPKG):
-        logging.error(f"Input fehlt: {INPUT_GPKG}")
+    input_gpkg = config.GPKG_FILES["master_analysis"]
+
+    if not os.path.exists(config.HAUPTORDNER):
+        logger.error(f"Hauptordner fehlt: {config.HAUPTORDNER}")
+        return
+
+    if not os.path.exists(input_gpkg):
+        logger.error(f"Input fehlt: {input_gpkg}")
         return
 
     # 1. DATEN LADEN
-    logging.info("Lade Geodaten...")
+    logger.info("Lade Geodaten...")
     try:
         # Layer 1: Die detaillierten Blöcke
-        gdf_blocks = gpd.read_file(INPUT_GPKG, layer="map_detail_nutzung")
+        gdf_blocks = gpd.read_file(input_gpkg, layer="map_detail_nutzung")
         # Layer 2: Die Bezirke (für Rahmen)
-        gdf_bezirke = gpd.read_file(INPUT_GPKG, layer="map_stats_bezirke")
+        gdf_bezirke = gpd.read_file(input_gpkg, layer="map_stats_bezirke")
     except Exception as e:
-        logging.error(f"Fehler beim Laden: {e}")
+        logger.error(f"Fehler beim Laden: {e}")
         return
 
     # ---------------------------------------------------------
     # TEIL 1: STATISCHE KARTE (Matplotlib)
     # ---------------------------------------------------------
-    logging.info("Erstelle statische Strategie-Karte (PNG)...")
+    logger.info("Erstelle statische Strategie-Karte (PNG)...")
     
     # Setup Plot
     fig, ax = plt.subplots(figsize=(20, 15)) # Großes Format
@@ -63,10 +46,10 @@ def main():
     # Daten filtern: Wir zeigen ALLES, aber färben unterschiedlich
     # Mapping der Farben basierend auf der Spalte 'versorgung_visual'
     # Falls Werte im GDF sind, die nicht im Dict stehen, nehmen wir Grau
-    gdf_blocks['color'] = gdf_blocks['versorgung_visual'].map(COLORS).fillna("#808080")
+    gdf_blocks['color'] = gdf_blocks['versorgung_visual'].map(config.COLORS).fillna("#808080")
 
     # Plotten
-    logging.info("   Rendere Polygone...")
+    logger.info("   Rendere Polygone...")
     gdf_blocks.plot(
         ax=ax, 
         color=gdf_blocks['color'], 
@@ -75,7 +58,7 @@ def main():
     )
 
     # Bezirksgrenzen darüber legen
-    logging.info("   Zeichne Bezirksgrenzen...")
+    logger.info("   Zeichne Bezirksgrenzen...")
     gdf_bezirke.plot(
         ax=ax,
         facecolor="none",
@@ -85,7 +68,7 @@ def main():
     )
 
     # Legende bauen
-    patches = [mpatches.Patch(color=c, label=l) for l, c in COLORS.items()]
+    patches = [mpatches.Patch(color=c, label=l) for l, c in config.COLORS.items()]
     plt.legend(handles=patches, loc='lower right', title="Versorgungsstatus", fontsize=12, title_fontsize=14)
 
     # Texte & Titel
@@ -96,23 +79,23 @@ def main():
     ax.set_axis_off()
 
     # Speichern
-    plt.savefig(OUTPUT_MAP_PNG, dpi=150, bbox_inches='tight') # DPI 150 reicht für Monitor, 300 für Druck
-    logging.info(f"✅ PNG gespeichert: {OUTPUT_MAP_PNG}")
+    plt.savefig(config.OUTPUT_MAP_PNG, dpi=150, bbox_inches='tight') # DPI 150 reicht für Monitor, 300 für Druck
+    logger.info(f"✅ PNG gespeichert: {config.OUTPUT_MAP_PNG}")
     plt.close()
 
     # ---------------------------------------------------------
     # TEIL 2: INTERAKTIVE KARTE (Folium)
     # ---------------------------------------------------------
-    logging.info("Erstelle interaktive Web-Karte (HTML)...")
+    logger.info("Erstelle interaktive Web-Karte (HTML)...")
 
     # GeoPandas muss für Folium immer EPSG:4326 (Lat/Lon) sein
-    if gdf_blocks.crs != "EPSG:4326":
-        gdf_blocks_web = gdf_blocks.to_crs("EPSG:4326")
+    if gdf_blocks.crs != config.WEB_CRS:
+        gdf_blocks_web = gdf_blocks.to_crs(config.WEB_CRS)
     else:
         gdf_blocks_web = gdf_blocks
         
-    if gdf_bezirke.crs != "EPSG:4326":
-        gdf_bezirke_web = gdf_bezirke.to_crs("EPSG:4326")
+    if gdf_bezirke.crs != config.WEB_CRS:
+        gdf_bezirke_web = gdf_bezirke.to_crs(config.WEB_CRS)
     else:
         gdf_bezirke_web = gdf_bezirke
 
@@ -124,14 +107,12 @@ def main():
     def style_function(feature):
         status = feature['properties']['versorgung_visual']
         return {
-            'fillColor': COLORS.get(status, '#808080'),
+            'fillColor': config.COLORS.get(status, '#808080'),
             'color': 'none', # Keine Umrandung
             'weight': 0,
             'fillOpacity': 0.7
         }
 
-    # Wir teilen die Daten in Layer Gruppen auf, damit man sie an/aus schalten kann
-    
     # Layer-Definitionen (Name im GDF, Anzeigename, Standardmäßig sichtbar?)
     layers_config = [
         ("Lücke (White Spot)", "🔴 White Spots (Lücken)", True),
@@ -185,8 +166,8 @@ def main():
 
     folium.LayerControl().add_to(m)
 
-    m.save(OUTPUT_MAP_HTML)
-    logging.info(f"✅ HTML gespeichert: {OUTPUT_MAP_HTML}")
+    m.save(config.OUTPUT_MAP_HTML)
+    logger.info(f"✅ HTML gespeichert: {config.OUTPUT_MAP_HTML}")
 
 if __name__ == "__main__":
     main()
