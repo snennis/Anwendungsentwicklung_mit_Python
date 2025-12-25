@@ -5,6 +5,11 @@ import osmnx as ox
 import numpy as np
 import logging
 import warnings
+import ssl
+import urllib.request
+
+# SSL-Verifikation global deaktivieren (für GDI Berlin)
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Warnungen bei GeoPandas Overlay unterdrücken
 warnings.filterwarnings("ignore")
@@ -45,6 +50,11 @@ def load_layer_safe(path, layer=None):
 def get_wfs_data(url, name):
     logging.info(f"Lade {name} von GDI Berlin...")
     try:
+        # SSL-Context ohne Verifikation
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+
         gdf = gpd.read_file(url)
         if gdf.crs != ANALYSIS_CRS:
             gdf = gdf.to_crs(ANALYSIS_CRS)
