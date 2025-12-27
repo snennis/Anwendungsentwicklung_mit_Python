@@ -26,7 +26,7 @@ ANALYSIS_CRS = "EPSG:25833" # UTM 33N (Berlin Standard)
 URL_BEZIRKE = "https://gdi.berlin.de/services/wfs/alkis_bezirke?service=wfs&version=2.0.0&request=GetFeature&typeNames=alkis_bezirke:bezirksgrenzen&outputFormat=application/json&srsName=EPSG:25833"
 
 # Flächennutzung (Umweltatlas)
-URL_ISU5 = "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?service=wfs&version=2.0.0&request=GetFeature&typeNames=ua_flaechennutzung:c_reale_nutzung_2023&outputFormat=application/json&srsName=EPSG:25833"
+URL_ISU5 = "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=ua_flaechennutzung:d_reale_nutzung_vegetationsbedeckung_2023&OUTPUTFORMAT=application/json"
 
 def setup_logging():
     logging.basicConfig(
