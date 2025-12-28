@@ -9,7 +9,8 @@ import logging
 
 # --- KONFIGURATION ---
 HAUPTORDNER = "Glasfaser_Analyse_Project"
-INPUT_GPKG = os.path.join(HAUPTORDNER, "05_master_analysis.gpkg")
+INPUT_PARQUET_DETAIL = os.path.join(HAUPTORDNER, "05_master_analysis_detail.parquet")
+INPUT_PARQUET_STATS = os.path.join(HAUPTORDNER, "05_master_analysis_stats.parquet")
 OUTPUT_MAP_PNG = os.path.join(HAUPTORDNER, "berlin_strategie_karte.png")
 OUTPUT_MAP_HTML = os.path.join(HAUPTORDNER, "berlin_interaktiv.html")
 LOG_DATEINAME = os.path.join(HAUPTORDNER, "06_visualization.log")
@@ -25,6 +26,8 @@ COLORS = {
 }
 
 def setup_logging():
+    if not os.path.exists(HAUPTORDNER):
+        os.makedirs(HAUPTORDNER)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
@@ -35,17 +38,21 @@ def main():
     setup_logging()
     logging.info("🚀 STARTE VISUALISIERUNG")
 
-    if not os.path.exists(INPUT_GPKG):
-        logging.error(f"Input fehlt: {INPUT_GPKG}")
+    if not os.path.exists(INPUT_PARQUET_DETAIL):
+        logging.error(f"Input fehlt: {INPUT_PARQUET_DETAIL}")
         return
 
     # 1. DATEN LADEN
     logging.info("Lade Geodaten...")
     try:
         # Layer 1: Die detaillierten Blöcke
-        gdf_blocks = gpd.read_file(INPUT_GPKG, layer="map_detail_nutzung")
+        gdf_blocks = gpd.read_parquet(INPUT_PARQUET_DETAIL)
         # Layer 2: Die Bezirke (für Rahmen)
-        gdf_bezirke = gpd.read_file(INPUT_GPKG, layer="map_stats_bezirke")
+        if os.path.exists(INPUT_PARQUET_STATS):
+            gdf_bezirke = gpd.read_parquet(INPUT_PARQUET_STATS)
+        else:
+            gdf_bezirke = gpd.GeoDataFrame()
+            logging.warning("Keine Bezirks-Statistiken gefunden.")
     except Exception as e:
         logging.error(f"Fehler beim Laden: {e}")
         return
