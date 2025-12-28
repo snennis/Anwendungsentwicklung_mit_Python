@@ -16,8 +16,9 @@ warnings.filterwarnings("ignore")
 
 # --- KONFIGURATION ---
 HAUPTORDNER = "Glasfaser_Analyse_Project"
-INPUT_GPKG = os.path.join(HAUPTORDNER, "04_analysis_merged.gpkg")
-OUTPUT_GPKG = os.path.join(HAUPTORDNER, "05_master_analysis.gpkg")
+INPUT_PARQUET = os.path.join(HAUPTORDNER, "04_analysis_merged.parquet")
+OUTPUT_PARQUET_DETAIL = os.path.join(HAUPTORDNER, "05_master_analysis_detail.parquet")
+OUTPUT_PARQUET_STATS = os.path.join(HAUPTORDNER, "05_master_analysis_stats.parquet")
 LOG_DATEINAME = os.path.join(HAUPTORDNER, "05_enrichment.log")
 ANALYSIS_CRS = "EPSG:25833" # UTM 33N (Berlin Standard)
 
@@ -39,7 +40,12 @@ def load_layer_safe(path, layer=None):
     if not os.path.exists(path):
         return gpd.GeoDataFrame()
     try:
-        gdf = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
+        # Parquet support
+        if path.endswith('.parquet'):
+            gdf = gpd.read_parquet(path)
+        else:
+            gdf = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
+            
         if gdf.crs != ANALYSIS_CRS:
             gdf = gdf.to_crs(ANALYSIS_CRS)
         return gdf
@@ -105,7 +111,7 @@ def main():
     logging.info("🚀 STARTE ENRICHMENT (V3 - Fix Klassifizierung)")
 
     # 1. DATEN LADEN
-    gdf_fiber = load_layer_safe(INPUT_GPKG, layer="analyse_berlin")
+    gdf_fiber = load_layer_safe(INPUT_PARQUET)
     if gdf_fiber.empty:
         logging.error("Keine Glasfaser-Daten. Abbruch.")
         return
@@ -231,16 +237,18 @@ def main():
         gdf_district_stats = gpd.GeoDataFrame()
 
     # 5. SPEICHERN
-    if os.path.exists(OUTPUT_GPKG): os.remove(OUTPUT_GPKG)
-    
-    logging.info(f"Speichere Ergebnisse in {OUTPUT_GPKG}...")
+    logging.info(f"Speichere Ergebnisse als Parquet...")
     
     if not gdf_map_layer.empty:
         cols_export = ['kategorie', 'versorgung_visual', 'is_relevant', 'geometry']
-        gdf_map_layer[cols_export].to_file(OUTPUT_GPKG, layer="map_detail_nutzung", driver="GPKG")
+        if os.path.exists(OUTPUT_PARQUET_DETAIL): os.remove(OUTPUT_PARQUET_DETAIL)
+        gdf_map_layer[cols_export].to_parquet(OUTPUT_PARQUET_DETAIL, compression='snappy')
+        logging.info(f"   -> {OUTPUT_PARQUET_DETAIL}")
     
     if not gdf_district_stats.empty:
-        gdf_district_stats.to_file(OUTPUT_GPKG, layer="map_stats_bezirke", driver="GPKG")
+        if os.path.exists(OUTPUT_PARQUET_STATS): os.remove(OUTPUT_PARQUET_STATS)
+        gdf_district_stats.to_parquet(OUTPUT_PARQUET_STATS, compression='snappy')
+        logging.info(f"   -> {OUTPUT_PARQUET_STATS}")
     
     logging.info("✅ Fertig.")
 
