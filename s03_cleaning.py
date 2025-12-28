@@ -12,10 +12,10 @@ ANALYSIS_CRS = "EPSG:25833" # Metrisches System
 
 # Input -> Output Mapping
 LAYERS_TO_CLEAN = [
-    {"input": "raw_tk_2000.gpkg", "output": "clean_tk_2000.gpkg", "radius": 7.0, "name": "Telekom 2000"},
-    {"input": "raw_tk_1000.gpkg", "output": "clean_tk_1000.gpkg", "radius": 7.0, "name": "Telekom 1000"},
-    {"input": "raw_tk_plan.gpkg", "output": "clean_tk_plan.gpkg", "radius": 7.0, "name": "Telekom Plan"},
-    {"input": "raw_vf_1000.gpkg", "output": "clean_vf_1000.gpkg", "radius": 3.0, "name": "Vodafone 1000"}
+    {"input_dir": "output_parquet/tk_2000", "output": "clean_tk_2000.parquet", "radius": 7.0, "name": "Telekom 2000"},
+    {"input_dir": "output_parquet/tk_1000", "output": "clean_tk_1000.parquet", "radius": 7.0, "name": "Telekom 1000"},
+    {"input_dir": "output_parquet/tk_plan", "output": "clean_tk_plan.parquet", "radius": 7.0, "name": "Telekom Plan"},
+    {"input_dir": "output_parquet/vf_1000", "output": "clean_vf_1000.parquet", "radius": 3.0, "name": "Vodafone 1000"}
 ]
 
 # Cache für die Grenze, damit wir sie nicht 4x laden müssen
@@ -42,18 +42,39 @@ def get_city_shape(city: str):
         return box(360000, 5800000, 420000, 5860000) # Grobe UTM33 Koordinaten
 
 def clean_geometry_layer(config):
-    in_path = os.path.join(HAUPTORDNER, config["input"])
+    in_dir = os.path.join(HAUPTORDNER, config["input_dir"])
     out_path = os.path.join(HAUPTORDNER, config["output"])
     radius = config["radius"]
     
-    if not os.path.exists(in_path):
+    if not os.path.exists(in_dir):
+        print(f"⚠️ Input Directory fehlt: {in_dir}")
         return
 
     print(f"🧹 Verarbeite {config['name']}...")
     
     try:
-        # 1. Laden
-        gdf = gpd.read_file(in_path)
+        # 1. Laden (Parquet Partitions)
+        # GeoPandas read_parquet kann Verzeichnisse manchmal nicht direkt lesen,
+        # daher lesen wir explizit alle *.parquet files
+        parquet_files = [os.path.join(in_dir, f) for f in os.listdir(in_dir) if f.endswith('.parquet')]
+        
+        if not parquet_files:
+            print(f"   ⚠️ Keine Parquet-Dateien in {in_dir}")
+            return
+            
+        dfs = []
+        for pf in parquet_files:
+            try:
+                # Schnelles Laden ohne komplette Validierung
+                dfs.append(gpd.read_parquet(pf))
+            except Exception as e:
+                print(f"   ⚠️ Fehler beim Lesen von {pf}: {e}")
+        
+        if not dfs:
+            return
+
+        gdf = pd.concat(dfs, ignore_index=True)
+        
         if gdf.empty:
             print(f"   ⚠️ Leer.")
             return
@@ -65,9 +86,7 @@ def clean_geometry_layer(config):
         # 3. HARD CLIPPING (Alles außerhalb von Berlin abschneiden)
         berlin_shape = get_city_shape("Berlin, Germany")
         
-        # Clip führt einen geometrischen Schnitt durch
-        # Wir nutzen geopandas clip (ab Version 0.7 verfügbar)
-        print(f"   ✂️ Schneide auf Stadtgrenze zu...")
+        print(f"   ✂️ Schneide auf Stadtgrenze zu ({len(gdf)} Features)...")
         gdf = gdf.clip(berlin_shape)
         
         if gdf.empty:
@@ -77,13 +96,14 @@ def clean_geometry_layer(config):
         print(f"   🔧 Repariere Korridore (Radius: {radius}m)...")
         
         # 4. Cleaning (Buffer-Trick)
+        # Buffer operation kann teuer sein, aber notwendig für 'Lückenfüllung'
         gdf['geometry'] = gdf.geometry.buffer(radius, resolution=3)
         gdf = gdf.dissolve()
         gdf['geometry'] = gdf.geometry.buffer(-radius, resolution=3)
         gdf['geometry'] = gdf.geometry.buffer(0)
         
         # 5. Speichern
-        gdf.to_file(out_path, driver="GPKG")
+        gdf.to_parquet(out_path, compression='snappy')
         print(f"   ✅ Fertig: {config['output']}")
         
     except Exception as e:
