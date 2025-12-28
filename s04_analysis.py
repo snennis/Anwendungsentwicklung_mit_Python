@@ -7,15 +7,15 @@ import logging
 
 # --- KONFIGURATION ---
 HAUPTORDNER = "Glasfaser_Analyse_Project"
-OUTPUT_GPKG = os.path.join(HAUPTORDNER, "04_analysis_merged.gpkg")
+OUTPUT_PARQUET = os.path.join(HAUPTORDNER, "04_analysis_merged.parquet")
 LOG_DATEINAME = os.path.join(HAUPTORDNER, "04_analysis.log")
 ANALYSIS_CRS = "EPSG:25833" 
 
 INPUT_FILES = {
-    "tk_2000": "clean_tk_2000.gpkg",
-    "tk_1000": "clean_tk_1000.gpkg",
-    "tk_plan": "clean_tk_plan.gpkg",
-    "vf_1000": "clean_vf_1000.gpkg"
+    "tk_2000": "clean_tk_2000.parquet",
+    "tk_1000": "clean_tk_1000.parquet",
+    "tk_plan": "clean_tk_plan.parquet",
+    "vf_1000": "clean_vf_1000.parquet"
 }
 
 def setup_logging():
@@ -28,7 +28,7 @@ def load_clean_layer(key: str) -> gpd.GeoDataFrame:
         return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=ANALYSIS_CRS)
     
     logging.info(f"Lade {key}...")
-    gdf = gpd.read_file(filepath)
+    gdf = gpd.read_parquet(filepath)
     if gdf.crs != ANALYSIS_CRS:
         gdf = gdf.to_crs(ANALYSIS_CRS)
     return gdf
@@ -116,8 +116,8 @@ def main():
     print(stats.round(2))
     print("="*30 + "\n")
 
-    if os.path.exists(OUTPUT_GPKG): os.remove(OUTPUT_GPKG)
-    gdf_final.to_file(OUTPUT_GPKG, layer="analyse_berlin", driver="GPKG")
+    if os.path.exists(OUTPUT_PARQUET): os.remove(OUTPUT_PARQUET)
+    gdf_final.to_parquet(OUTPUT_PARQUET, compression='snappy')
     logging.info("✅ Fertig.")
 
 if __name__ == "__main__":
