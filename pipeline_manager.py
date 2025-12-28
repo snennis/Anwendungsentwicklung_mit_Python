@@ -4,6 +4,7 @@ import os
 import sys
 import gc
 import importlib
+import importlib.util
 from datetime import timedelta
 
 # --- WINDOWS UTF-8 FIX ---
@@ -75,11 +76,29 @@ def run_step(step_pretty_name, module_name):
     gc.collect()
     return True
 
+def check_dependencies():
+    logger = logging.getLogger("MANAGER")
+    required = ["geopandas", "pyarrow", "shapely"]
+    missing = []
+    for package in required:
+        if importlib.util.find_spec(package) is None:
+            missing.append(package)
+    
+    if missing:
+        logger.error(f"❌ FEHLENDE ABHÄNGIGKEITEN: {', '.join(missing)}")
+        logger.error("Bitte installieren mit: pip install " + " ".join(missing))
+        return False
+    return True
+
 def main():
     setup_central_logging()
     logger = logging.getLogger("MANAGER")
     logger.info("=== 5G INTELLIGENCE PIPELINE GESTARTET ===")
     
+    if not check_dependencies():
+        print("❌ Abbruch: Fehlende Abhängigkeiten. Siehe Log.")
+        return
+
     total_start = time.time()
     success_count = 0
     
