@@ -5,6 +5,7 @@ import numpy as np
 import logging
 import warnings
 import ssl
+import traceback
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 from config import BASE_DIR, get_log_path, CRS, ENRICHMENT_INPUT_GPKG, ENRICHMENT_OUTPUT_GPKG, WFS_URLS
@@ -43,8 +44,6 @@ def load_layer_safe(path, layer=None):
 def get_wfs_data(url, name):
     logging.info(f"Lade {name} von GDI Berlin...")
     try:
-        # WFS direct load usually uses fiona, pyogrio can be used if driver handles URL
-        # For URL, standard gpd.read_file is safer, but we can try engine="pyogrio" which supports URLs
         gdf = gpd.read_file(url)
         if gdf.crs != CRS:
             gdf = gdf.to_crs(CRS)
@@ -57,7 +56,6 @@ def determine_landuse_category(row_series, cols):
     """
     Intelligente Klassifizierung basierend auf ISU5 Codes.
     """
-    # row_series is a pandas Series
     # 1. VERSUCH: Nutzungscode (Am sichersten)
     nutzung_col = next((c for c in cols if c.lower() in ['nutzung', 'nutz', 'fl_nutz']), None)
     
@@ -92,72 +90,100 @@ def process_district(args):
     Args: (bezirk_row, gdf_isu, gdf_fiber_active)
     """
     bezirk_row, gdf_isu, gdf_fiber_active = args
-    bezirk_geom = gpd.GeoSeries([bezirk_row.geometry], crs=CRS)
+    bezirk_geom = bezirk_row.geometry
     
     results = []
     
     try:
-        # A. Clipping (Nutzerdaten & Faser auf Bezirk begrenzen)
-        gdf_isu_bezirk = gpd.clip(gdf_isu, bezirk_geom)
-        if gdf_isu_bezirk.empty:
+        # 1. PRE-FILTERING (Spatial Index)
+        minx, miny, maxx, maxy = bezirk_geom.bounds
+        subset_isu = gdf_isu.cx[minx:maxx, miny:maxy]
+        
+        if subset_isu.empty:
             return []
+            
+        subset_fiber = gpd.GeoDataFrame()
+        if not gdf_fiber_active.empty:
+            subset_fiber = gdf_fiber_active.cx[minx:maxx, miny:maxy]
 
-        # CLEANING: Explode/Filter valid
+        # 2. CLIPPING
+        mask = gpd.GeoSeries([bezirk_geom], crs=CRS)
+        
+        gdf_isu_bezirk = gpd.clip(subset_isu, mask)
+        if gdf_isu_bezirk.empty: return []
+
         gdf_isu_bezirk = gdf_isu_bezirk[gdf_isu_bezirk.geom_type.isin(['Polygon', 'MultiPolygon'])]
         if gdf_isu_bezirk.empty: return []
 
-        gdf_fiber_bezirk = gpd.clip(gdf_fiber_active, bezirk_geom)
-        if not gdf_fiber_bezirk.empty:
-             gdf_fiber_bezirk = gdf_fiber_bezirk[gdf_fiber_bezirk.geom_type.isin(['Polygon', 'MultiPolygon'])]
+        gdf_fiber_bezirk = gpd.GeoDataFrame()
+        if not subset_fiber.empty:
+            gdf_fiber_bezirk = gpd.clip(subset_fiber, mask)
+            if not gdf_fiber_bezirk.empty:
+                gdf_fiber_bezirk = gdf_fiber_bezirk[gdf_fiber_bezirk.geom_type.isin(['Polygon', 'MultiPolygon'])]
 
-        # B. Intersection (Versorgung)
+        # 3. INTERSECTION
+        gdf_intersect = gpd.GeoDataFrame()
+        
         if not gdf_fiber_bezirk.empty:
-            gdf_isu_bezirk = gdf_isu_bezirk[gdf_isu_bezirk.is_valid]
-            gdf_fiber_bezirk = gdf_fiber_bezirk[gdf_fiber_bezirk.is_valid]
+            # --- FIX: make_valid korrekt zuweisen ---
+            # Wir weisen es der Geometrie-Spalte zu, statt das DF zu überschreiben
+            try:
+                gdf_isu_bezirk[gdf_isu_bezirk.geometry.name] = gdf_isu_bezirk.geometry.make_valid()
+                gdf_fiber_bezirk[gdf_fiber_bezirk.geometry.name] = gdf_fiber_bezirk.geometry.make_valid()
+            except AttributeError:
+                # Fallback für ältere GeoPandas Versionen
+                gdf_isu_bezirk[gdf_isu_bezirk.geometry.name] = gdf_isu_bezirk.geometry.buffer(0)
+                gdf_fiber_bezirk[gdf_fiber_bezirk.geometry.name] = gdf_fiber_bezirk.geometry.buffer(0)
+
+            # Sicherstellen, dass wir den richtigen Geometrie-Namen nutzen
+            geo_col_isu = gdf_isu_bezirk.geometry.name
+            geo_col_fiber = gdf_fiber_bezirk.geometry.name
 
             gdf_intersect = gpd.overlay(
-                gdf_isu_bezirk[['kategorie', 'is_relevant', 'geometry']], 
-                gdf_fiber_bezirk[['status', 'geometry']], 
+                gdf_isu_bezirk[['kategorie', 'is_relevant', geo_col_isu]], 
+                gdf_fiber_bezirk[['status', geo_col_fiber]], 
                 how='intersection'
             )
-            gdf_intersect['versorgung_visual'] = gdf_intersect['status'].apply(simplify_fiber_status)
-        else:
-            gdf_intersect = gpd.GeoDataFrame()
-
-        # C. Difference (Lücken)
+            if not gdf_intersect.empty:
+                gdf_intersect['versorgung_visual'] = gdf_intersect['status'].apply(simplify_fiber_status)
+        
+        # 4. DIFFERENCE (White Spots)
+        gdf_gaps = gpd.GeoDataFrame()
         gdf_relevant_bezirk = gdf_isu_bezirk[gdf_isu_bezirk['is_relevant'] == True]
         
         if not gdf_relevant_bezirk.empty:
+            geo_col_rel = gdf_relevant_bezirk.geometry.name
+            
             if not gdf_fiber_bezirk.empty:
                 fiber_union = gdf_fiber_bezirk.dissolve()
                 gdf_gaps = gpd.overlay(
-                    gdf_relevant_bezirk[['kategorie', 'is_relevant', 'geometry']], 
+                    gdf_relevant_bezirk[['kategorie', 'is_relevant', geo_col_rel]], 
                     fiber_union, 
                     how='difference'
                 )
             else:
-                gdf_gaps = gdf_relevant_bezirk[['kategorie', 'is_relevant', 'geometry']].copy()
+                gdf_gaps = gdf_relevant_bezirk[['kategorie', 'is_relevant', geo_col_rel]].copy()
             
-            gdf_gaps['versorgung_visual'] = "Lücke (White Spot)"
-            gdf_gaps['status'] = "White Spot"
-        else:
-            gdf_gaps = gpd.GeoDataFrame()
+            if not gdf_gaps.empty:
+                gdf_gaps['versorgung_visual'] = "Lücke (White Spot)"
+                gdf_gaps['status'] = "White Spot"
 
+        # 5. RESULT COLLECTION
         if not gdf_intersect.empty:
             results.append(gdf_intersect)
         if not gdf_gaps.empty:
             results.append(gdf_gaps)
             
     except Exception as e:
-        # We can't log nicely from child process easily to main log without queue, 
-        # but returning empty list signals strictly "no result".
-        pass
+        print(f"❌ ERROR in District {bezirk_row.get('nam', 'Unknown')}:")
+        traceback.print_exc()
+        return []
         
     return results
 
 def main():
     setup_logging()
-    logging.info("🚀 STARTE ENRICHMENT (V5.0 - Parallel & Pyogrio)")
+    logging.info("🚀 STARTE ENRICHMENT (V5.2 - Fixed Geometry Logic)")
 
     # 1. DATEN LADEN
     gdf_fiber = load_layer_safe(INPUT_GPKG, layer="analyse_berlin")
@@ -165,7 +191,6 @@ def main():
         logging.error("Keine Glasfaser-Daten. Abbruch.")
         return
     
-    # Filtere nur aktive Fasern
     gdf_fiber_active = gdf_fiber[gdf_fiber['status'] != 'White Spot'].copy()
     
     gdf_bezirke = get_wfs_data(WFS_URLS["BEZIRKE"], "Bezirke")
@@ -175,21 +200,21 @@ def main():
         logging.error("Basisdaten fehlen (WFS Fehler).")
         return
 
-    # 2. VORBEREITUNG FLÄCHENNUTZUNG
+    # 2. VORBEREITUNG
     logging.info(f"Klassifiziere {len(gdf_isu)} Nutzungsblöcke...")
-    
-    # Optimization: Use vectorization or simple apply is fine.
     gdf_isu['kategorie'] = gdf_isu.apply(lambda row: determine_landuse_category(row, gdf_isu.columns), axis=1)
     gdf_isu['is_relevant'] = gdf_isu['kategorie'].isin(['Wohnen', 'Gewerbe', 'Öffentlich'])
     
-    # 3. PARALLELE SCHLEIFE
+    # 3. PARALLEL PROCESSING
     logging.info(f"🚀 Starte parallele Verarbeitung von {len(gdf_bezirke)} Bezirken...")
     
+    # Spatial Index vorbauen (verhindert Race-Conditions)
+    try:
+        if gdf_isu.sindex is None: pass 
+        if not gdf_fiber_active.empty and gdf_fiber_active.sindex is None: pass
+    except: pass
+
     results_list = []
-    
-    # Argumente vorbereiten (Bezirke einzeln, aber die GDFs müssen komplett übergeben werden 
-    # - das kopiert Daten zu Prozessen, ist aber bei Vektordaten (max 100-200MB) meist ok auf modernen PCs)
-    
     task_args = []
     for _, row in gdf_bezirke.iterrows():
         task_args.append((row, gdf_isu, gdf_fiber_active))
@@ -205,7 +230,6 @@ def main():
             desc="Verarbeite"
         ))
         
-    # Flatten results
     for district_res in futures:
         results_list.extend(district_res)
 
@@ -214,11 +238,11 @@ def main():
     if results_list:
         gdf_map_layer = pd.concat(results_list, ignore_index=True)
     else:
+        logging.warning("⚠️ Keine Ergebnisse generiert!")
         gdf_map_layer = gpd.GeoDataFrame()
 
-    # 5. LAYER 2: BEZIRKS-STATISTIK
+    # 5. STATISTIKEN
     logging.info("Berechne finale Statistiken...")
-    
     bez_col = next((c for c in gdf_bezirke.columns if c.lower() in ['bezeichnung', 'name', 'nam']), 'id')
     gdf_district_stats = gpd.GeoDataFrame()
 
@@ -266,9 +290,9 @@ def main():
 
     # 6. SPEICHERN
     if os.path.exists(OUTPUT_GPKG): os.remove(OUTPUT_GPKG)
-    logging.info(f"Speichere Ergebnisse in {OUTPUT_GPKG}...")
     
     if not gdf_map_layer.empty:
+        logging.info(f"Speichere Ergebnisse in {OUTPUT_GPKG}...")
         cols_export = ['kategorie', 'versorgung_visual', 'is_relevant', 'geometry']
         gdf_map_layer[cols_export].to_file(OUTPUT_GPKG, layer="map_detail_nutzung", driver="GPKG", engine="pyogrio")
     

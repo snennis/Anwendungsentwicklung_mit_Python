@@ -4,12 +4,17 @@ import pandas as pd
 import osmnx as ox
 import logging
 from shapely.geometry import box
+from concurrent.futures import ProcessPoolExecutor
 from config import BASE_DIR, get_log_path, CRS, CLEANING_LAYERS
 
 LOG_FILE = get_log_path("03_cleaning.log")
 
 # Cache für die Grenze
 _BERLIN_BOUNDARY_CACHE = None
+
+def clean_wrapper(layer_config):
+    """Wrapper, damit der Executor nur ein Argument braucht"""
+    return clean_geometry_layer(layer_config)
 
 def get_city_shape(city: str):
     """Lädt die exakte Grenze von Berlin (ohne Brandenburg)."""
@@ -82,9 +87,13 @@ def main():
     if not os.path.exists(BASE_DIR): return
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
     
-    print("🚀 Starte Geometrie-Cleaning & Clipping")
-    for layer in CLEANING_LAYERS:
-        clean_geometry_layer(layer)
+    print("🚀 Starte Geometrie-Cleaning & Clipping (PARALLEL)")
+    
+    # Nutzung aller Kerne
+    with ProcessPoolExecutor() as executor:
+        # List comprehension, um alle Tasks zu starten
+        list(executor.map(clean_wrapper, CLEANING_LAYERS))
+    
     print("\n✨ Fertig.")
 
 if __name__ == "__main__":

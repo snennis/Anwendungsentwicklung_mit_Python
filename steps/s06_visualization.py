@@ -1,18 +1,33 @@
 import os
 import geopandas as gpd
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
-import folium
-from folium.plugins import Fullscreen
+import matplotlib.patheffects as pe
+import contextily as cx
 import logging
-from config import BASE_DIR, get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG, VISUALIZATION_MAP_HTML, VISUALIZATION_COLORS
+from datetime import datetime
+from config import get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG, VISUALIZATION_COLORS
 
 INPUT_GPKG = VISUALIZATION_INPUT_GPKG
 OUTPUT_MAP_PNG = VISUALIZATION_MAP_PNG
-OUTPUT_MAP_HTML = VISUALIZATION_MAP_HTML
 LOG_FILE = get_log_path("06_visualization.log")
 COLORS = VISUALIZATION_COLORS
+
+# Mapping: ARS-Schlüssel -> Name
+DISTRICT_MAPPING = {
+    '11000001': 'Mitte',
+    '11000002': 'Friedrichshain-Kr.',
+    '11000003': 'Pankow',
+    '11000004': 'Charlottenburg-Wilm.',
+    '11000005': 'Spandau',
+    '11000006': 'Steglitz-Zehl.',
+    '11000007': 'Tempelhof-Schön.',
+    '11000008': 'Neukölln',
+    '11000009': 'Treptow-Köpenick',
+    '11000010': 'Marzahn-Hellersdorf',
+    '11000011': 'Lichtenberg',
+    '11000012': 'Reinickendorf'
+}
 
 def setup_logging():
     logging.basicConfig(
@@ -21,9 +36,17 @@ def setup_logging():
         handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
     )
 
+def add_north_arrow(ax):
+    """Fügt einen stilisierten Nordpfeil oben rechts hinzu."""
+    x, y, arrow_length = 0.97, 0.95, 0.05
+    ax.annotate('N', xy=(x, y), xytext=(x, y-arrow_length),
+                arrowprops=dict(facecolor='black', width=4, headwidth=12),
+                ha='center', va='center', fontsize=10,
+                xycoords=ax.transAxes, zorder=10)
+
 def main():
     setup_logging()
-    logging.info("🚀 STARTE VISUALISIERUNG")
+    logging.info("🚀 STARTE VISUALISIERUNG (Final Fix)")
 
     if not os.path.exists(INPUT_GPKG):
         logging.error(f"Input fehlt: {INPUT_GPKG}")
@@ -32,146 +55,154 @@ def main():
     # 1. DATEN LADEN
     logging.info("Lade Geodaten...")
     try:
-        # Layer 1: Die detaillierten Blöcke
         gdf_blocks = gpd.read_file(INPUT_GPKG, layer="map_detail_nutzung", engine="pyogrio")
-        # Layer 2: Die Bezirke (für Rahmen)
         gdf_bezirke = gpd.read_file(INPUT_GPKG, layer="map_stats_bezirke", engine="pyogrio")
+        
+        # WICHTIG: Reprojektion nach WebMercator (EPSG:3857) für Contextily Basemaps
+        logging.info("   Reprojiziere nach WebMercator (EPSG:3857)...")
+        if gdf_blocks.crs != "EPSG:3857":
+            gdf_blocks = gdf_blocks.to_crs(epsg=3857)
+        if gdf_bezirke.crs != "EPSG:3857":
+            gdf_bezirke = gdf_bezirke.to_crs(epsg=3857)
+
+        # 2. NAMEN STATT IDS (Robuste Suche)
+        logging.info("   Löse Bezirksnamen auf...")
+        # Suche Spalte, die wie eine ID aussieht (beginnt mit '11' und ist lang)
+        id_col = None
+        for col in gdf_bezirke.columns:
+            # Check erstes Element
+            val = str(gdf_bezirke[col].iloc[0])
+            if val.startswith('11') and len(val) >= 8:
+                id_col = col
+                break
+        
+        gdf_bezirke['display_name'] = "Bezirk"
+        if id_col:
+            logging.info(f"   -> ID-Spalte gefunden: {id_col}")
+            # Clean: Whitespace weg, String erzwingen
+            gdf_bezirke['clean_id'] = gdf_bezirke[id_col].astype(str).str.strip()
+            gdf_bezirke['display_name'] = gdf_bezirke['clean_id'].map(DISTRICT_MAPPING).fillna(gdf_bezirke['clean_id'])
+        else:
+            # Fallback auf Namensspalte
+            name_col = next((c for c in gdf_bezirke.columns if c.lower() in ['name', 'bezeichnung', 'nam']), None)
+            if name_col: gdf_bezirke['display_name'] = gdf_bezirke[name_col]
+
     except Exception as e:
-        logging.error(f"Fehler beim Laden: {e}")
+        logging.error(f"Fehler beim Laden/Verarbeiten: {e}")
         return
 
     # ---------------------------------------------------------
-    # TEIL 1: STATISCHE KARTE (Matplotlib)
+    # PLOTTING
     # ---------------------------------------------------------
-    logging.info("Erstelle statische Strategie-Karte (PNG)...")
+    logging.info("Erstelle Karte...")
     
-    # Setup Plot
-    fig, ax = plt.subplots(figsize=(20, 15)) # Großes Format
-    fig.patch.set_facecolor('white')
-    ax.set_facecolor('#f0f0f0') # Leichter Hintergrundgrau
+    # 20x20 Zoll ist gut für Details
+    fig, ax = plt.subplots(figsize=(20, 20)) 
+    
+    # GRENZEN SETZEN (Ganz wichtig gegen das "weiße Bild")
+    # Wir nehmen die exakten Grenzen der Bezirke
+    minx, miny, maxx, maxy = gdf_bezirke.total_bounds
+    ax.set_xlim(minx, maxx)
+    ax.set_ylim(miny, maxy)
 
-    # Daten filtern: Wir zeigen ALLES, aber färben unterschiedlich
-    gdf_blocks['color'] = gdf_blocks['versorgung_visual'].map(COLORS).fillna("#808080")
+    # 1. BASEMAP (Hintergrundkarte)
+    logging.info("   Lade Basemap (CartoDB Positron)...")
+    try:
+        # Source explizit angeben. crs=... ist wichtig!
+        cx.add_basemap(
+            ax, 
+            crs=gdf_bezirke.crs.to_string(), 
+            source=cx.providers.CartoDB.PositronNoLabels, # NoLabels, damit wir unsere eigenen Namen nutzen können
+            attribution=False,
+            zoom=12 # Fixer Zoom verhindert Speicherüberlauf (Memory Error)
+        )
+    except Exception as e:
+        logging.warning(f"Konnte Basemap nicht laden: {e}")
 
-    # Plotten
-    logging.info("   Rendere Polygone...")
+    # 2. DATEN (Versorgungslücken etc.)
+    # Farben vorbereiten
+    gdf_blocks['color'] = gdf_blocks['versorgung_visual'].map(COLORS).fillna("#d3d3d3")
+
+    logging.info("   Rendere Versorgungsdaten...")
     gdf_blocks.plot(
         ax=ax, 
         color=gdf_blocks['color'], 
         edgecolor='none', 
-        alpha=0.8
+        alpha=0.65,  # Transparent, damit Straßen sichtbar bleiben
+        zorder=2
     )
 
-    # Bezirksgrenzen darüber legen
-    logging.info("   Zeichne Bezirksgrenzen...")
+    # 3. BEZIRKSRAHMEN
     gdf_bezirke.plot(
         ax=ax,
         facecolor="none",
-        edgecolor="black",
+        edgecolor="#444444", 
         linewidth=1.5,
-        alpha=0.5
+        zorder=3,
+        alpha=0.8
     )
 
-    # Legende bauen
-    patches = [mpatches.Patch(color=c, label=l) for l, c in COLORS.items()]
-    plt.legend(handles=patches, loc='lower right', title="Versorgungsstatus", fontsize=12, title_fontsize=14)
+    # 4. LABELS (Namen)
+    logging.info("   Plaziere Labels...")
+    for idx, row in gdf_bezirke.iterrows():
+        # Representative Point garantiert Position IM Polygon
+        pt = row.geometry.representative_point()
+        txt = ax.text(
+            pt.x, pt.y, 
+            str(row['display_name']).upper(), 
+            ha='center', va='center', 
+            fontsize=12, 
+            fontweight='bold',
+            color='#222222', 
+            zorder=4
+        )
+        # Weißer Rand (Halo) für Lesbarkeit
+        txt.set_path_effects([pe.withStroke(linewidth=4, foreground='white', alpha=0.8)])
 
-    # Texte & Titel
-    plt.title("Glasfaser-Versorgungsanalyse Berlin (Wohnen & Gewerbe)", fontsize=24, fontweight='bold', pad=20)
-    plt.suptitle("Datenquellen: Telekom, Vodafone, GDI Berlin (Open Data) | Analyse: Python ETL Pipeline", fontsize=12, y=0.92)
+    # 5. LEGENDE & DEKO
+    patches = [mpatches.Patch(color=c, label=l) for l, c in COLORS.items()]
+    leg = plt.legend(
+        handles=patches, 
+        loc='lower right', 
+        title="Versorgungsstatus", 
+        fontsize=12, 
+        title_fontsize=14,
+        frameon=True,
+        facecolor='white',
+        framealpha=0.9, 
+        borderpad=1,
+        shadow=True
+    )
+
+    add_north_arrow(ax)
+
+    # Titelbox oben links
+    props = dict(boxstyle='round', facecolor='white', alpha=0.9, pad=0.5)
+    ax.text(0.02, 0.98, "Glasfaser-Analyse Berlin", transform=ax.transAxes, fontsize=24,
+            verticalalignment='top', fontweight='bold', bbox=props, zorder=5)
     
-    # Achsen ausblenden
+    ax.text(0.02, 0.945, "Identifikation von 'White Spots' in Wohn- & Gewerbegebieten", 
+            transform=ax.transAxes, fontsize=12, verticalalignment='top', 
+            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8), zorder=5)
+
+    # Credits unten links
+    date_str = datetime.now().strftime("%d.%m.%Y")
+    ax.text(0.02, 0.01, 
+             f"Basemap: © CartoDB, © OSM | Analyse: Python ETL | Stand: {date_str}", 
+             transform=ax.transAxes, fontsize=9, color='#333333', zorder=5,
+             path_effects=[pe.withStroke(linewidth=2, foreground='white')])
+
+    # Achsen aus
     ax.set_axis_off()
 
     # Speichern
-    plt.savefig(OUTPUT_MAP_PNG, dpi=150, bbox_inches='tight') 
-    logging.info(f"✅ PNG gespeichert: {OUTPUT_MAP_PNG}")
+    logging.info("   Speichere PNG (200 DPI)...")
+    # DPI 200 ist guter Kompromiss zwischen Qualität und Dateigröße
+    plt.savefig(OUTPUT_MAP_PNG, dpi=200, bbox_inches='tight', pad_inches=0.1) 
+    logging.info(f"✅ Karte gespeichert: {OUTPUT_MAP_PNG}")
     plt.close()
 
-    # ---------------------------------------------------------
-    # TEIL 2: INTERAKTIVE KARTE (Folium)
-    # ---------------------------------------------------------
-    logging.info("Erstelle interaktive Web-Karte (HTML)...")
-
-    # GeoPandas muss für Folium immer EPSG:4326 (Lat/Lon) sein
-    if gdf_blocks.crs != "EPSG:4326":
-        gdf_blocks_web = gdf_blocks.to_crs("EPSG:4326")
-    else:
-        gdf_blocks_web = gdf_blocks
-        
-    if gdf_bezirke.crs != "EPSG:4326":
-        gdf_bezirke_web = gdf_bezirke.to_crs("EPSG:4326")
-    else:
-        gdf_bezirke_web = gdf_bezirke
-
-    # Karte initialisieren (Zentrum Berlin)
-    m = folium.Map(location=[52.5200, 13.4050], zoom_start=11, tiles="CartoDB positron")
-    Fullscreen().add_to(m)
-
-    # Funktion für Styling (Farbe je nach Status)
-    def style_function(feature):
-        status = feature['properties']['versorgung_visual']
-        return {
-            'fillColor': COLORS.get(status, '#808080'),
-            'color': 'none', # Keine Umrandung
-            'weight': 0,
-            'fillOpacity': 0.7
-        }
-
-    # Layer-Definitionen
-    layers_config = [
-        ("Lücke (White Spot)", "🔴 White Spots (Lücken)", True),
-        ("Geplant", "🔵 Ausbau Geplant", True),
-        ("Wettbewerb", "🟢 Wettbewerb", False),
-        ("Telekom", "🟣 Telekom", False),
-        ("Vodafone", "🔴 Vodafone", False),
-        ("Sonstiges", "⚪ Sonstiges", False)
-    ]
-
-    for cat_key, cat_label, show_default in layers_config:
-        subset = gdf_blocks_web[gdf_blocks_web['versorgung_visual'] == cat_key]
-        if not subset.empty:
-            folium.GeoJson(
-                subset,
-                name=cat_label,
-                style_function=style_function,
-                tooltip=folium.GeoJsonTooltip(fields=['kategorie', 'versorgung_visual'], aliases=['Nutzung:', 'Status:']),
-                show=show_default
-            ).add_to(m)
-
-    # 3a. Layer: Bezirke (Choropleth - Versorgung)
-    def get_district_color(pct):
-        if pct < 50: return '#d7191c' # Rot
-        elif pct < 70: return '#fdae61' # Orange
-        elif pct < 90: return '#a6d96a' # Hellgrün
-        else: return '#1a9641' # Dunkelgrün
-
-    folium.GeoJson(
-        gdf_bezirke_web,
-        name="Bezirke (Versorgung %)",
-        style_function=lambda x: {
-            'fillColor': get_district_color(x['properties'].get('Wohn_Versorgt_Pct', 0)),
-            'color': 'gray',
-            'weight': 1,
-            'fillOpacity': 0.4
-        },
-        tooltip=folium.GeoJsonTooltip(fields=['Bezirk', 'Wohn_Versorgt_Pct'], aliases=['Bezirk:', 'Versorgt (%):']),
-        show=False
-    ).add_to(m)
-
-    # 3b. Layer: Bezirke (Nur Rahmen)
-    folium.GeoJson(
-        gdf_bezirke_web,
-        name="Bezirksgrenzen (Rahmen)",
-        style_function=lambda x: {'color': 'black', 'fillColor': 'transparent', 'weight': 2, 'pointer_events': False},
-        highlight_function=lambda x: {'weight': 4, 'color': '#666'},
-        show=True
-    ).add_to(m)
-
-    folium.LayerControl().add_to(m)
-
-    m.save(OUTPUT_MAP_HTML)
-    logging.info(f"✅ HTML gespeichert: {OUTPUT_MAP_HTML}")
+    logging.info("✅ Visualisierung abgeschlossen.")
 
 if __name__ == "__main__":
     main()
