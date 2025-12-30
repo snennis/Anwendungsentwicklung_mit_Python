@@ -4,33 +4,24 @@ import pandas as pd
 import osmnx as ox
 from shapely.geometry import box
 import logging
+from config import BASE_DIR, get_log_path, CRS, ANALYSIS_INPUT_FILES, ANALYSIS_OUTPUT_GPKG
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-OUTPUT_GPKG = os.path.join(HAUPTORDNER, "04_analysis_merged.gpkg")
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "04_analysis.log")
-ANALYSIS_CRS = "EPSG:25833" 
-
-INPUT_FILES = {
-    "tk_2000": "clean_tk_2000.gpkg",
-    "tk_1000": "clean_tk_1000.gpkg",
-    "tk_plan": "clean_tk_plan.gpkg",
-    "vf_1000": "clean_vf_1000.gpkg"
-}
+OUTPUT_GPKG = os.path.join(BASE_DIR, ANALYSIS_OUTPUT_GPKG)
+LOG_FILE = get_log_path("04_analysis.log")
 
 def setup_logging():
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s',
-                        handlers=[logging.FileHandler(LOG_DATEINAME, mode='w'), logging.StreamHandler()])
+                        handlers=[logging.FileHandler(LOG_FILE, mode='w'), logging.StreamHandler()])
 
 def load_clean_layer(key: str) -> gpd.GeoDataFrame:
-    filepath = os.path.join(HAUPTORDNER, INPUT_FILES[key])
+    filepath = os.path.join(BASE_DIR, ANALYSIS_INPUT_FILES[key])
     if not os.path.exists(filepath):
-        return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=ANALYSIS_CRS)
+        return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=CRS)
     
     logging.info(f"Lade {key}...")
     gdf = gpd.read_file(filepath)
-    if gdf.crs != ANALYSIS_CRS:
-        gdf = gdf.to_crs(ANALYSIS_CRS)
+    if gdf.crs != CRS:
+        gdf = gdf.to_crs(CRS)
     return gdf
 
 def get_boundary(city: str):
@@ -38,11 +29,11 @@ def get_boundary(city: str):
     logging.info("Lade Stadtgrenze Berlin...")
     try:
         gdf_berlin = ox.geocode_to_gdf(city)
-        return gdf_berlin.to_crs(ANALYSIS_CRS).dissolve()
+        return gdf_berlin.to_crs(CRS).dissolve()
     except:
         logging.warning("OSM Fehler. Nutze BBox Fallback.")
         bbox = box(360000, 5800000, 420000, 5860000) 
-        return gpd.GeoDataFrame({'geometry': [bbox]}, crs="EPSG:25833")
+        return gpd.GeoDataFrame({'geometry': [bbox]}, crs=CRS)
 
 def calculate_area_km2(gdf):
     if gdf.empty: return 0.0
@@ -65,7 +56,7 @@ def main():
 
     # 3. MARKTSITUATION
     logging.info("Analysiere Wettbewerb...")
-    gdf_competition = gpd.GeoDataFrame(columns=['geometry'], crs=ANALYSIS_CRS)
+    gdf_competition = gpd.GeoDataFrame(columns=['geometry'], crs=CRS)
     gdf_monopol_tk = gdf_tk_total.copy()
     gdf_monopol_vf = gdf_vf_1000.copy()
 

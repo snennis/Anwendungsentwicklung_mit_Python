@@ -6,29 +6,19 @@ import matplotlib.patches as mpatches
 import folium
 from folium.plugins import Fullscreen
 import logging
+from config import BASE_DIR, get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG, VISUALIZATION_MAP_HTML, VISUALIZATION_COLORS
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-INPUT_GPKG = os.path.join(HAUPTORDNER, "05_master_analysis.gpkg")
-OUTPUT_MAP_PNG = os.path.join(HAUPTORDNER, "berlin_strategie_karte.png")
-OUTPUT_MAP_HTML = os.path.join(HAUPTORDNER, "berlin_interaktiv.html")
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "06_visualization.log")
-
-# Farben (Corporate Identity orientiert)
-COLORS = {
-    "Wettbewerb": "#228B22",       # Forest Green (Alles super)
-    "Telekom": "#E20074",          # Telekom Magenta
-    "Vodafone": "#E60000",         # Vodafone Rot
-    "Geplant": "#1E90FF",          # Dodger Blue
-    "Lücke (White Spot)": "#FF8C00",# Dark Orange (Warnung!)
-    "Sonstiges": "#D3D3D3"         # Light Grey (Hintergrund)
-}
+INPUT_GPKG = os.path.join(BASE_DIR, VISUALIZATION_INPUT_GPKG)
+OUTPUT_MAP_PNG = os.path.join(BASE_DIR, VISUALIZATION_MAP_PNG)
+OUTPUT_MAP_HTML = os.path.join(BASE_DIR, VISUALIZATION_MAP_HTML)
+LOG_FILE = get_log_path("06_visualization.log")
+COLORS = VISUALIZATION_COLORS
 
 def setup_logging():
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[logging.FileHandler(LOG_DATEINAME, mode='w', encoding='utf-8'), logging.StreamHandler()]
+        handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
     )
 
 def main():
@@ -61,8 +51,6 @@ def main():
     ax.set_facecolor('#f0f0f0') # Leichter Hintergrundgrau
 
     # Daten filtern: Wir zeigen ALLES, aber färben unterschiedlich
-    # Mapping der Farben basierend auf der Spalte 'versorgung_visual'
-    # Falls Werte im GDF sind, die nicht im Dict stehen, nehmen wir Grau
     gdf_blocks['color'] = gdf_blocks['versorgung_visual'].map(COLORS).fillna("#808080")
 
     # Plotten
@@ -70,7 +58,7 @@ def main():
     gdf_blocks.plot(
         ax=ax, 
         color=gdf_blocks['color'], 
-        edgecolor='none', # Keine Ränder für Performance und Look
+        edgecolor='none', 
         alpha=0.8
     )
 
@@ -96,7 +84,7 @@ def main():
     ax.set_axis_off()
 
     # Speichern
-    plt.savefig(OUTPUT_MAP_PNG, dpi=150, bbox_inches='tight') # DPI 150 reicht für Monitor, 300 für Druck
+    plt.savefig(OUTPUT_MAP_PNG, dpi=150, bbox_inches='tight') 
     logging.info(f"✅ PNG gespeichert: {OUTPUT_MAP_PNG}")
     plt.close()
 
@@ -130,9 +118,7 @@ def main():
             'fillOpacity': 0.7
         }
 
-    # Wir teilen die Daten in Layer Gruppen auf, damit man sie an/aus schalten kann
-    
-    # Layer-Definitionen (Name im GDF, Anzeigename, Standardmäßig sichtbar?)
+    # Layer-Definitionen
     layers_config = [
         ("Lücke (White Spot)", "🔴 White Spots (Lücken)", True),
         ("Geplant", "🔵 Ausbau Geplant", True),
@@ -154,7 +140,6 @@ def main():
             ).add_to(m)
 
     # 3a. Layer: Bezirke (Choropleth - Versorgung)
-    # Funktion für Farbe je nach Prozentwert (0-100)
     def get_district_color(pct):
         if pct < 50: return '#d7191c' # Rot
         elif pct < 70: return '#fdae61' # Orange
@@ -174,7 +159,7 @@ def main():
         show=False
     ).add_to(m)
 
-    # 3b. Layer: Bezirke (Nur Rahmen) - Immer verfügbar für Orientierung
+    # 3b. Layer: Bezirke (Nur Rahmen)
     folium.GeoJson(
         gdf_bezirke_web,
         name="Bezirksgrenzen (Rahmen)",

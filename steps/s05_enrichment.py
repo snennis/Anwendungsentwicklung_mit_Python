@@ -5,29 +5,20 @@ import osmnx as ox
 import numpy as np
 import logging
 import warnings
+from config import BASE_DIR, get_log_path, CRS, ENRICHMENT_INPUT_GPKG, ENRICHMENT_OUTPUT_GPKG, WFS_URLS
 
 # Warnungen bei GeoPandas Overlay unterdrücken
 warnings.filterwarnings("ignore")
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-INPUT_GPKG = os.path.join(HAUPTORDNER, "04_analysis_merged.gpkg")
-OUTPUT_GPKG = os.path.join(HAUPTORDNER, "05_master_analysis.gpkg")
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "05_enrichment.log")
-ANALYSIS_CRS = "EPSG:25833" # UTM 33N (Berlin Standard)
-
-# --- WFS QUELLEN (Berlin Open Data) ---
-# Bezirke (Verwaltung)
-URL_BEZIRKE = "https://gdi.berlin.de/services/wfs/alkis_bezirke?service=wfs&version=2.0.0&request=GetFeature&typeNames=alkis_bezirke:bezirksgrenzen&outputFormat=application/json&srsName=EPSG:25833"
-
-# Flächennutzung (Umweltatlas)
-URL_ISU5 = "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?service=wfs&version=2.0.0&request=GetFeature&typeNames=ua_flaechennutzung:c_reale_nutzung_2023&outputFormat=application/json&srsName=EPSG:25833"
+INPUT_GPKG = os.path.join(BASE_DIR, ENRICHMENT_INPUT_GPKG)
+OUTPUT_GPKG = os.path.join(BASE_DIR, ENRICHMENT_OUTPUT_GPKG)
+LOG_FILE = get_log_path("05_enrichment.log")
 
 def setup_logging():
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[logging.FileHandler(LOG_DATEINAME, mode='w', encoding='utf-8'), logging.StreamHandler()]
+        handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
     )
 
 def load_layer_safe(path, layer=None):
@@ -35,8 +26,8 @@ def load_layer_safe(path, layer=None):
         return gpd.GeoDataFrame()
     try:
         gdf = gpd.read_file(path, layer=layer) if layer else gpd.read_file(path)
-        if gdf.crs != ANALYSIS_CRS:
-            gdf = gdf.to_crs(ANALYSIS_CRS)
+        if gdf.crs != CRS:
+            gdf = gdf.to_crs(CRS)
         return gdf
     except Exception as e:
         logging.error(f"Ladefehler {path}: {e}")
@@ -46,8 +37,8 @@ def get_wfs_data(url, name):
     logging.info(f"Lade {name} von GDI Berlin...")
     try:
         gdf = gpd.read_file(url)
-        if gdf.crs != ANALYSIS_CRS:
-            gdf = gdf.to_crs(ANALYSIS_CRS)
+        if gdf.crs != CRS:
+            gdf = gdf.to_crs(CRS)
         return gdf
     except Exception as e:
         logging.error(f"Download Fehler {name}: {e}")
@@ -100,8 +91,8 @@ def main():
         logging.error("Keine Glasfaser-Daten. Abbruch.")
         return
     
-    gdf_bezirke = get_wfs_data(URL_BEZIRKE, "Bezirke")
-    gdf_isu = get_wfs_data(URL_ISU5, "Flächennutzung")
+    gdf_bezirke = get_wfs_data(WFS_URLS["BEZIRKE"], "Bezirke")
+    gdf_isu = get_wfs_data(WFS_URLS["ISU5"], "Flächennutzung")
     
     if gdf_isu.empty or gdf_bezirke.empty:
         logging.error("Basisdaten fehlen (WFS Fehler).")
@@ -115,13 +106,11 @@ def main():
     gdf_isu['is_relevant'] = gdf_isu['kategorie'].isin(['Wohnen', 'Gewerbe', 'Öffentlich'])
     
     logging.info("Verteilung Nutzung (Neu):")
-    # Zeige die Statistik im Log, damit wir sofort sehen, ob es geklappt hat
     counts = gdf_isu['kategorie'].value_counts()
     print(counts)
     
     if counts.get('Wohnen', 0) == 0 and counts.get('Gewerbe', 0) == 0:
         logging.error("❌ FEHLER: Immer noch alles 'Sonstiges'. Prüfe die 'nutzung' Spalte!")
-        # Debugging: Zeige erste Zeilen der relevanten Spalten
         cols_debug = [c for c in gdf_isu.columns if 'nutz' in c.lower()]
         print("Beispiel-Daten (Nutzung):")
         print(gdf_isu[cols_debug].head())
@@ -161,7 +150,6 @@ def main():
     # 4. LAYER 2: BEZIRKS-STATISTIK
     logging.info("Erstelle Layer 2: Bezirks-Statistik...")
     
-    # Robuste Spaltensuche für Bezirke
     bez_col = None
     candidates = ['bezeichnung', 'BEZ_NAME', 'bez_name', 'nam', 'name', 'bezirk', 'BEZEICHNUNG']
     for c in candidates:
@@ -170,14 +158,13 @@ def main():
             break
             
     if not bez_col:
-        # Fallback auf Index oder erste String-Spalte
         valid_cols = [c for c in gdf_bezirke.columns if c.lower() not in ['geometry', 'gml_id', 'id']]
         bez_col = valid_cols[0] if valid_cols else 'id'
         logging.info(f"Nutze Fallback-Spalte '{bez_col}' als Bezirksname.")
 
     if not gdf_map_layer.empty:
         gdf_map_layer['centroid'] = gdf_map_layer.geometry.centroid
-        join_geo = gpd.GeoDataFrame(gdf_map_layer.drop(columns='geometry'), geometry='centroid', crs=ANALYSIS_CRS)
+        join_geo = gpd.GeoDataFrame(gdf_map_layer.drop(columns='geometry'), geometry='centroid', crs=CRS)
         
         joined = gpd.sjoin(join_geo, gdf_bezirke[[bez_col, 'geometry']], how='inner', predicate='within')
         joined['area_m2'] = gdf_map_layer.geometry.area

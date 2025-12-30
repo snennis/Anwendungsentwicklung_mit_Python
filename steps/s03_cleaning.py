@@ -4,21 +4,11 @@ import pandas as pd
 import osmnx as ox
 import logging
 from shapely.geometry import box
+from config import BASE_DIR, get_log_path, CRS, CLEANING_LAYERS
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "03_cleaning.log")
-ANALYSIS_CRS = "EPSG:25833" # Metrisches System
+LOG_FILE = get_log_path("03_cleaning.log")
 
-# Input -> Output Mapping
-LAYERS_TO_CLEAN = [
-    {"input": "raw_tk_2000.gpkg", "output": "clean_tk_2000.gpkg", "radius": 7.0, "name": "Telekom 2000"},
-    {"input": "raw_tk_1000.gpkg", "output": "clean_tk_1000.gpkg", "radius": 7.0, "name": "Telekom 1000"},
-    {"input": "raw_tk_plan.gpkg", "output": "clean_tk_plan.gpkg", "radius": 7.0, "name": "Telekom Plan"},
-    {"input": "raw_vf_1000.gpkg", "output": "clean_vf_1000.gpkg", "radius": 3.0, "name": "Vodafone 1000"}
-]
-
-# Cache für die Grenze, damit wir sie nicht 4x laden müssen
+# Cache für die Grenze
 _BERLIN_BOUNDARY_CACHE = None
 
 def get_city_shape(city: str):
@@ -32,18 +22,18 @@ def get_city_shape(city: str):
         # Lade Berlin
         gdf = ox.geocode_to_gdf(city)
         # Reprojizieren
-        gdf = gdf.to_crs(ANALYSIS_CRS)
+        gdf = gdf.to_crs(CRS)
         # Dissolve (falls mehrere Teile)
         _BERLIN_BOUNDARY_CACHE = gdf.dissolve().geometry.iloc[0]
         return _BERLIN_BOUNDARY_CACHE
     except Exception as e:
         print(f"   ⚠️ Fehler beim Laden der Grenze: {e}")
         # Fallback BBox (Ungefähr Berlin Mitte)
-        return box(360000, 5800000, 420000, 5860000) # Grobe UTM33 Koordinaten
+        return box(360000, 5800000, 420000, 5860000)
 
 def clean_geometry_layer(config):
-    in_path = os.path.join(HAUPTORDNER, config["input"])
-    out_path = os.path.join(HAUPTORDNER, config["output"])
+    in_path = os.path.join(BASE_DIR, config["input"])
+    out_path = os.path.join(BASE_DIR, config["output"])
     radius = config["radius"]
     
     if not os.path.exists(in_path):
@@ -59,14 +49,12 @@ def clean_geometry_layer(config):
             return
 
         # 2. Reprojektion
-        if gdf.crs != ANALYSIS_CRS:
-            gdf = gdf.to_crs(ANALYSIS_CRS)
+        if gdf.crs != CRS:
+            gdf = gdf.to_crs(CRS)
 
         # 3. HARD CLIPPING (Alles außerhalb von Berlin abschneiden)
         berlin_shape = get_city_shape("Berlin, Germany")
         
-        # Clip führt einen geometrischen Schnitt durch
-        # Wir nutzen geopandas clip (ab Version 0.7 verfügbar)
         print(f"   ✂️ Schneide auf Stadtgrenze zu...")
         gdf = gdf.clip(berlin_shape)
         
@@ -91,11 +79,11 @@ def clean_geometry_layer(config):
         print(f"   ❌ Fehler: {e}")
 
 def main():
-    if not os.path.exists(HAUPTORDNER): return
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_DATEINAME, mode='w')])
+    if not os.path.exists(BASE_DIR): return
+    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
     
     print("🚀 Starte Geometrie-Cleaning & Clipping")
-    for layer in LAYERS_TO_CLEAN:
+    for layer in CLEANING_LAYERS:
         clean_geometry_layer(layer)
     print("\n✨ Fertig.")
 
