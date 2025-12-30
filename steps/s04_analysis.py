@@ -6,7 +6,7 @@ from shapely.geometry import box
 import logging
 from config import BASE_DIR, get_log_path, CRS, ANALYSIS_INPUT_FILES, ANALYSIS_OUTPUT_GPKG
 
-OUTPUT_GPKG = os.path.join(BASE_DIR, ANALYSIS_OUTPUT_GPKG)
+OUTPUT_GPKG = ANALYSIS_OUTPUT_GPKG
 LOG_FILE = get_log_path("04_analysis.log")
 
 def setup_logging():
@@ -14,12 +14,12 @@ def setup_logging():
                         handlers=[logging.FileHandler(LOG_FILE, mode='w'), logging.StreamHandler()])
 
 def load_clean_layer(key: str) -> gpd.GeoDataFrame:
-    filepath = os.path.join(BASE_DIR, ANALYSIS_INPUT_FILES[key])
+    filepath = ANALYSIS_INPUT_FILES[key]
     if not os.path.exists(filepath):
         return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=CRS)
     
     logging.info(f"Lade {key}...")
-    gdf = gpd.read_file(filepath)
+    gdf = gpd.read_file(filepath, engine="pyogrio")
     if gdf.crs != CRS:
         gdf = gdf.to_crs(CRS)
     return gdf
@@ -108,7 +108,7 @@ def main():
     print("="*30 + "\n")
 
     if os.path.exists(OUTPUT_GPKG): os.remove(OUTPUT_GPKG)
-    gdf_final.to_file(OUTPUT_GPKG, layer="analyse_berlin", driver="GPKG")
+    gdf_final.to_file(OUTPUT_GPKG, layer="analyse_berlin", driver="GPKG", engine="pyogrio")
     logging.info("✅ Fertig.")
 
 if __name__ == "__main__":

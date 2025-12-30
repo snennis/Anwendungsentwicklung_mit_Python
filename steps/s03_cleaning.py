@@ -32,8 +32,8 @@ def get_city_shape(city: str):
         return box(360000, 5800000, 420000, 5860000)
 
 def clean_geometry_layer(config):
-    in_path = os.path.join(BASE_DIR, config["input"])
-    out_path = os.path.join(BASE_DIR, config["output"])
+    in_path = config["input"]
+    out_path = config["output"]
     radius = config["radius"]
     
     if not os.path.exists(in_path):
@@ -43,7 +43,7 @@ def clean_geometry_layer(config):
     
     try:
         # 1. Laden
-        gdf = gpd.read_file(in_path)
+        gdf = gpd.read_file(in_path, engine="pyogrio")
         if gdf.empty:
             print(f"   ⚠️ Leer.")
             return
@@ -71,7 +71,7 @@ def clean_geometry_layer(config):
         gdf['geometry'] = gdf.geometry.buffer(0)
         
         # 5. Speichern
-        gdf.to_file(out_path, driver="GPKG")
+        gdf.to_file(out_path, driver="GPKG", engine="pyogrio")
         print(f"   ✅ Fertig: {config['output']}")
         
     except Exception as e:

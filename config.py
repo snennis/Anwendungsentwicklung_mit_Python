@@ -3,9 +3,15 @@ from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any
 
 # --- GLOBAL SETTINGS ---
-BASE_DIR = "Glasfaser_Analyse_Project"
+BASE_DIR = "fiber_data"
+OUTPUT_DIR = os.path.join(BASE_DIR, "output")
+CACHE_DIR = os.path.join(BASE_DIR, "cache")
+LOG_DIR = os.path.join(BASE_DIR, "logs")
+
+# Ensure directories exist (simple check helper for scripts)
+# Note: Actual creation often happens in steps or main, but we define paths here.
+
 CRS = "EPSG:25833"  # UTM 33N (Berlin Standard)
-LOG_DIR = BASE_DIR  # Logs go into the base dir
 
 # --- LOGGING CONFIG ---
 def get_log_path(filename: str) -> str:
@@ -45,9 +51,9 @@ vf_h = int(3000 * (1793/1506)) * vf_res
 
 DOWNLOAD_LAYERS = [
     LayerConfig("Telekom_Fiber_Total", "wms", "https://t-map.telekom.de/tmap2/geoserver/public/tmap/public/wms", 
-               "public:coverage_fixedline_fiber", tk_dim, tk_dim, 2048, 2048, "tiles_tk_fiber"),
+               "public:coverage_fixedline_fiber", tk_dim, tk_dim, 2048, 2048, os.path.join(CACHE_DIR, "tiles_tk_fiber")),
     LayerConfig("Vodafone_Fiber_Total", "arcgis", "https://netmap.vodafone.de/arcgis/rest/services/CoKart/netzabdeckung_fixnet_4x/MapServer/export", 
-               "show:3", vf_w, vf_h, 3000, int(3000 * (1793/1506)), "tiles_vf_fiber", dpi=158.4, bboxSR="102100", imageSR="102100")
+               "show:3", vf_w, vf_h, 3000, int(3000 * (1793/1506)), os.path.join(CACHE_DIR, "tiles_vf_fiber"), dpi=158.4, bboxSR="102100", imageSR="102100")
 ]
 
 # --- S02 PROCESSOR CONFIG ---
@@ -70,36 +76,38 @@ def hex_to_rgba(hex_code: str) -> Tuple[int, int, int, int]:
     return (*rgb, 255)
 
 PROCESSING_LAYERS = [
-    ProcessConfig("Telekom Fiber", "tiles_tk_fiber", [
-        ExtractionRule("2000 Mbit", hex_to_rgba("#610332"), "raw_tk_2000.gpkg", "2000"),
-        ExtractionRule("1000 Mbit", hex_to_rgba("#7D4443"), "raw_tk_1000.gpkg", "1000"),
-        ExtractionRule("Geplant", hex_to_rgba("#314EA5"), "raw_tk_plan.gpkg", "Plan"),
+    ProcessConfig("Telekom Fiber", os.path.join(CACHE_DIR, "tiles_tk_fiber"), [
+        ExtractionRule("2000 Mbit", hex_to_rgba("#610332"), os.path.join(CACHE_DIR, "raw_tk_2000.gpkg"), "2000"),
+        ExtractionRule("1000 Mbit", hex_to_rgba("#7D4443"), os.path.join(CACHE_DIR, "raw_tk_1000.gpkg"), "1000"),
+        ExtractionRule("Geplant", hex_to_rgba("#314EA5"), os.path.join(CACHE_DIR, "raw_tk_plan.gpkg"), "Plan"),
     ]),
-    ProcessConfig("Vodafone Fiber", "tiles_vf_fiber", [
-        ExtractionRule("1000 Mbit", hex_to_rgba("#7F0000"), "raw_vf_1000.gpkg", "1000")
+    ProcessConfig("Vodafone Fiber", os.path.join(CACHE_DIR, "tiles_vf_fiber"), [
+        ExtractionRule("1000 Mbit", hex_to_rgba("#7F0000"), os.path.join(CACHE_DIR, "raw_vf_1000.gpkg"), "1000")
     ])
 ]
 
 # --- S03 CLEANING CONFIG ---
 CLEANING_LAYERS = [
-    {"input": "raw_tk_2000.gpkg", "output": "clean_tk_2000.gpkg", "radius": 7.0, "name": "Telekom 2000"},
-    {"input": "raw_tk_1000.gpkg", "output": "clean_tk_1000.gpkg", "radius": 7.0, "name": "Telekom 1000"},
-    {"input": "raw_tk_plan.gpkg", "output": "clean_tk_plan.gpkg", "radius": 7.0, "name": "Telekom Plan"},
-    {"input": "raw_vf_1000.gpkg", "output": "clean_vf_1000.gpkg", "radius": 3.0, "name": "Vodafone 1000"}
+    {"input": os.path.join(CACHE_DIR, "raw_tk_2000.gpkg"), "output": os.path.join(CACHE_DIR, "clean_tk_2000.gpkg"), "radius": 7.0, "name": "Telekom 2000"},
+    {"input": os.path.join(CACHE_DIR, "raw_tk_1000.gpkg"), "output": os.path.join(CACHE_DIR, "clean_tk_1000.gpkg"), "radius": 7.0, "name": "Telekom 1000"},
+    {"input": os.path.join(CACHE_DIR, "raw_tk_plan.gpkg"), "output": os.path.join(CACHE_DIR, "clean_tk_plan.gpkg"), "radius": 7.0, "name": "Telekom Plan"},
+    {"input": os.path.join(CACHE_DIR, "raw_vf_1000.gpkg"), "output": os.path.join(CACHE_DIR, "clean_vf_1000.gpkg"), "radius": 3.0, "name": "Vodafone 1000"}
 ]
 
 # --- S04 ANALYSIS CONFIG ---
 ANALYSIS_INPUT_FILES = {
-    "tk_2000": "clean_tk_2000.gpkg",
-    "tk_1000": "clean_tk_1000.gpkg",
-    "tk_plan": "clean_tk_plan.gpkg",
-    "vf_1000": "clean_vf_1000.gpkg"
+    "tk_2000": os.path.join(CACHE_DIR, "clean_tk_2000.gpkg"),
+    "tk_1000": os.path.join(CACHE_DIR, "clean_tk_1000.gpkg"),
+    "tk_plan": os.path.join(CACHE_DIR, "clean_tk_plan.gpkg"),
+    "vf_1000": os.path.join(CACHE_DIR, "clean_vf_1000.gpkg")
 }
-ANALYSIS_OUTPUT_GPKG = "04_analysis_merged.gpkg"
+ANALYSIS_OUTPUT_GPKG = os.path.join(CACHE_DIR, "04_analysis_merged.gpkg")
 
 # --- S05 ENRICHMENT CONFIG ---
 ENRICHMENT_INPUT_GPKG = ANALYSIS_OUTPUT_GPKG
-ENRICHMENT_OUTPUT_GPKG = "05_master_analysis.gpkg"
+# Final result goes to OUTPUT_DIR
+ENRICHMENT_OUTPUT_GPKG = os.path.join(OUTPUT_DIR, "05_master_analysis.gpkg")
+
 WFS_URLS = {
     "BEZIRKE": "https://gdi.berlin.de/services/wfs/alkis_bezirke?service=wfs&version=2.0.0&request=GetFeature&typeNames=alkis_bezirke:bezirksgrenzen&outputFormat=application/json&srsName=EPSG:25833",
     "ISU5": "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=ua_flaechennutzung:d_reale_nutzung_vegetationsbedeckung_2023&OUTPUTFORMAT=application/json"
@@ -107,8 +115,9 @@ WFS_URLS = {
 
 # --- S06 VISUALIZATION CONFIG ---
 VISUALIZATION_INPUT_GPKG = ENRICHMENT_OUTPUT_GPKG
-VISUALIZATION_MAP_PNG = "berlin_strategie_karte.png"
-VISUALIZATION_MAP_HTML = "berlin_interaktiv.html"
+VISUALIZATION_MAP_PNG = os.path.join(OUTPUT_DIR, "berlin_strategie_karte.png")
+VISUALIZATION_MAP_HTML = os.path.join(OUTPUT_DIR, "berlin_interaktiv.html")
+
 VISUALIZATION_COLORS = {
     "Wettbewerb": "#228B22",       # Forest Green (Alles super)
     "Telekom": "#E20074",          # Telekom Magenta

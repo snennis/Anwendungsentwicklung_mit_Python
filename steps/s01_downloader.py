@@ -45,9 +45,9 @@ def download_worker(task: DownloadTask) -> bool:
         pass
     return False
 
-def prepare_tasks(layer: LayerConfig, bbox: Dict, output_base: str) -> List[DownloadTask]:
+def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     tasks = []
-    save_dir = os.path.join(output_base, layer.subdir)
+    save_dir = layer.subdir # Is now full path
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     
     y = bbox["Y_START"]
@@ -92,7 +92,7 @@ def main():
 
     all_tasks = []
     for layer in DOWNLOAD_LAYERS:
-        tasks = prepare_tasks(layer, ANALYSE_BBOX, BASE_DIR)
+        tasks = prepare_tasks(layer, ANALYSE_BBOX)
         all_tasks.extend(tasks)
         print(f"  -> {layer.name}: {len(tasks)} Kacheln.")
 

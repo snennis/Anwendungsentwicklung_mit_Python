@@ -5,6 +5,7 @@ import logging
 from typing import List, Tuple
 from tqdm import tqdm
 import numpy as np
+from concurrent.futures import ProcessPoolExecutor
 
 # --- ENVIRONMENT FIX (für PROJ/GDAL) ---
 try:
@@ -36,6 +37,10 @@ from config import BASE_DIR, get_log_path, ProcessConfig, ExtractionRule, PROCES
 
 LOG_FILE = get_log_path("02_processing.log")
 
+def process_single_file_wrapper(args):
+    """Wrapper for multiprocessing to unpack arguments."""
+    return process_single_file(*args)
+
 def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
     features = []
     try:
@@ -64,7 +69,7 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
     return features
 
 def process_layer_stream(config: ProcessConfig):
-    tile_dir = os.path.join(BASE_DIR, config.subdir)
+    tile_dir = config.subdir # Full path
     files = glob.glob(os.path.join(tile_dir, "*.png"))
     valid_files = [f for f in files if os.path.exists(f.replace(".png", ".pgw"))]
     
@@ -72,14 +77,33 @@ def process_layer_stream(config: ProcessConfig):
     
     for rule in config.rules:
         all_features = []
-        for fp in tqdm(valid_files, desc=f"  -> {rule.name}", unit="tile", colour="blue"):
-            all_features.extend(process_single_file(fp, rule))
+        
+        # Multiprocessing Setup
+        # Wir nutzen alle Kerne für maximale Geschwindigkeit
+        max_workers = os.cpu_count()
+        
+        task_args = [(f, rule) for f in valid_files]
+        
+        with ProcessPoolExecutor(max_workers=max_workers) as executor:
+            # map returns results in order
+            results = list(tqdm(
+                executor.map(process_single_file_wrapper, task_args), 
+                total=len(valid_files), 
+                desc=f"  -> {rule.name}", 
+                unit="tile", 
+                colour="blue"
+            ))
+            
+        # Flatten results
+        for res in results:
+            all_features.extend(res)
             
         if all_features:
-            out_path = os.path.join(BASE_DIR, rule.output_gpkg)
+            out_path = rule.output_gpkg # Full path
             gdf = geopandas.GeoDataFrame(all_features, crs="EPSG:3857")
-            gdf.to_file(out_path, driver="GPKG", layer=rule.layer_name)
-            print(f"     ✅ Gespeichert: {rule.output_gpkg} ({len(gdf)} Features)")
+            # Optimierung: Engine pyogrio für 10x Speed beim Schreiben
+            gdf.to_file(out_path, driver="GPKG", layer=rule.layer_name, engine="pyogrio")
+            print(f"     ✅ Gespeichert: {os.path.basename(out_path)} ({len(gdf)} Features)")
         else:
             print(f"     ℹ️ Leer: {rule.name}")
 

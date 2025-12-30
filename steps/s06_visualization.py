@@ -8,9 +8,9 @@ from folium.plugins import Fullscreen
 import logging
 from config import BASE_DIR, get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG, VISUALIZATION_MAP_HTML, VISUALIZATION_COLORS
 
-INPUT_GPKG = os.path.join(BASE_DIR, VISUALIZATION_INPUT_GPKG)
-OUTPUT_MAP_PNG = os.path.join(BASE_DIR, VISUALIZATION_MAP_PNG)
-OUTPUT_MAP_HTML = os.path.join(BASE_DIR, VISUALIZATION_MAP_HTML)
+INPUT_GPKG = VISUALIZATION_INPUT_GPKG
+OUTPUT_MAP_PNG = VISUALIZATION_MAP_PNG
+OUTPUT_MAP_HTML = VISUALIZATION_MAP_HTML
 LOG_FILE = get_log_path("06_visualization.log")
 COLORS = VISUALIZATION_COLORS
 
@@ -33,9 +33,9 @@ def main():
     logging.info("Lade Geodaten...")
     try:
         # Layer 1: Die detaillierten Blöcke
-        gdf_blocks = gpd.read_file(INPUT_GPKG, layer="map_detail_nutzung")
+        gdf_blocks = gpd.read_file(INPUT_GPKG, layer="map_detail_nutzung", engine="pyogrio")
         # Layer 2: Die Bezirke (für Rahmen)
-        gdf_bezirke = gpd.read_file(INPUT_GPKG, layer="map_stats_bezirke")
+        gdf_bezirke = gpd.read_file(INPUT_GPKG, layer="map_stats_bezirke", engine="pyogrio")
     except Exception as e:
         logging.error(f"Fehler beim Laden: {e}")
         return

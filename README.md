@@ -16,12 +16,13 @@ Eine automatisierte **ETL-Pipeline** zur Analyse der Glasfaser-Versorgungssituat
 | **🗺️ Raster-to-Vector Engine** | Speichereffiziente Stream-Verarbeitung zur Umwandlung von Pixeldaten in Vektor-Polygone. |
 | **🧹 Advanced Geometry Cleaning** | Automatische Reparatur von Topologie-Fehlern (Schließen von Artefakten, Morphological Buffering). |
 | **🧠 Spatial Intelligence** | Berechnung von Wettbewerbszonen, Monopolen, strategischen Überbauungen und Versorgungslücken. |
+| **📊 Modular & Configurable** | Zentrale Konfiguration und modulare Architektur für einfache Erweiterbarkeit. |
 
 ---
 
 ## 🏗️ Architektur & Pipeline
 
-Das Projekt folgt einer strikten "Separation of Concerns" Architektur in 4 Phasen, orchestriert durch `pipeline_manager.py`:
+Das Projekt folgt einer strikten "Separation of Concerns" Architektur in 6 Phasen, orchestriert durch `main.py`:
 
 ```mermaid
 graph LR
@@ -40,24 +41,24 @@ graph LR
     style G fill:#ff9,stroke:#333,stroke-width:2px
 ```
 
-### 1. Download Phase (`s01_downloader.py`)
+### 1. Download Phase (`steps/s01_downloader.py`)
 Nutzt `ThreadPoolExecutor` für parallele Requests. Unterstützt WMS (Telekom) und ArcGIS REST (Vodafone) Protokolle. Intelligentes Caching verhindert redundante Downloads.
 
-### 2. Processing Phase (`s02_processor.py`)
+### 2. Processing Phase (`steps/s02_processor.py`)
 Vektorisierung der Rasterdaten mittels `rasterio` und `shapely`. Enthält einen **Memory-Safe Iterator**, der auch riesige Datensätze ohne RAM-Overflow verarbeitet. Nutzt `scipy` für morphologisches Schließen kleiner Pixel-Lücken.
 
-### 3. Cleaning Phase (`s03_cleaning.py`)
+### 3. Cleaning Phase (`steps/s03_cleaning.py`)
 Geometrische Reparatur der Rohdaten. Wendet einen **Buffer-Dissolve-Unbuffer** Algorithmus an, um "Korridore" und systematische Lücken in den Provider-Daten zu schließen und saubere Flächen für die Flächenberechnung zu erzeugen.
 
-### 4. Analysis Phase (`s04_analysis.py`)
+### 4. Analysis Phase (`steps/s04_analysis.py`)
 Führt die Mengenlehre (Intersection, Difference, Union) auf den bereinigten Layern durch. Projiziert Daten nach **EPSG:25833 (ETRS89 / UTM zone 33N)** für präzise Flächenberechnungen in km².
 
-### 5. Enrichment Phase (`s05_enrichment.py`)
-Verknüpft die Analyse-Ergebnisse mit Kontextdaten:
-*   **B2B-Potential**: Identifiziert unversorgte Gewerbegebiete durch Verschneidung mit OSM-Landuse-Daten.
-*   **Kiez-Analyse**: Aggregiert Versorgungslücken auf Ebene der Berliner Planungsräume (LOR), um unterversorgte Wohngegenden zu lokalisieren.
+### 5. Enrichment Phase (`steps/s05_enrichment.py`)
+Verknüpft die Analyse-Ergebnisse mit Kontextdaten (WFS Berlin):
+*   **B2B-Potential**: Identifiziert unversorgte Gewerbegebiete (Flächennutzung) durch Verschneidung.
+*   **Kiez-Analyse**: Aggregiert Versorgungslücken auf Bezirksebene, um unterversorgte Wohngegenden zu lokalisieren.
 
-### 6. Visualization Phase (`s06_visualization.py`)
+### 6. Visualization Phase (`steps/s06_visualization.py`)
 Erstellt visuelle Repräsentationen der Analyseergebnisse:
 *   **Strategie-Karte (PNG)**: Statische Karte mit Corporate-Identity-Farben für Präsentationen.
 *   **Interaktive Web-Karte (HTML)**: Folium-basierte Karte mit Layer-Control (Telekom, Vodafone, Wettbewerb, Lücken, Geplant) und Choropleth-Darstellung der Bezirksversorgung.
@@ -67,16 +68,17 @@ Erstellt visuelle Repräsentationen der Analyseergebnisse:
 ## 📂 Directory Structure
 
 ```text
-.
-├── pipeline_manager.py    # Main entry point
-├── s01_downloader.py      # Data ingestion
-├── s02_processor.py       # Raster processing
-├── s03_cleaning.py        # Geometry cleaning
-├── s04_analysis.py        # Spatial analysis
-├── s05_enrichment.py      # Context enrichment
-├── s06_visualization.py   # Map generation
-├── requirements.txt       # Dependencies
-└── Glasfaser_Analyse_Project/  # Output directory
+fiber_data/                # [NEW] Main Data Directory
+│   ├── cache/             # Intermediate files (Tiles, Raw GPKGs)
+│   ├── logs/              # Log files
+│   └── output/            # Final Results (Maps, Master GPKG)
+├── config.py              # Central configuration settings
+├── main.py                # Unified entry point
+├── steps/                 # Modular step package
+│   ├── __init__.py
+│   ├── s01_downloader.py
+│   └── ...
+└── requirements.txt       # Dependencies
 ```
 
 ---
@@ -111,16 +113,23 @@ Erstellt visuelle Repräsentationen der Analyseergebnisse:
 Die gesamte Pipeline wird über den zentralen Manager gesteuert. Dieser kümmert sich um Logging, Zeitmessung und Speicherbereinigung.
 
 ```bash
-python pipeline_manager.py
+python main.py
 ```
 
+### Konfiguration (`config.py`)
+Möchten Sie den Analyse-Bereich, URLs oder Schwellenwerte ändern? Passen Sie einfach `config.py` im Stammverzeichnis an.
+
 ### Output
-Die Ergebnisse landen im Ordner `Glasfaser_Analyse_Project`:
-*   `pipeline_run.log`: Detaillierte Logs aller Schritte.
-*   `04_analysis_merged.gpkg`: Das Basis-Ergebnis mit Wettbewerbs-Daten.
-*   `05_enriched_analysis.gpkg`: Das finale GeoPackage angereichert um B2B- und Kiez-Daten.
-*   `berlin_strategie_karte.png`: Statische Übersichtskarte.
-*   `berlin_interaktiv.html`: Interaktive Karte zur Detailanalyse.
+Die Ergebnisse sind strukturiert abgelegt:
+
+*   **`fiber_data/output/`**:
+    *   `05_master_analysis.gpkg`: Das finale GeoPackage mit allen Layern und Statistiken.
+    *   `berlin_strategie_karte.png`: Statische Übersichtskarte.
+    *   `berlin_interaktiv.html`: Interaktive Karte zur Detailanalyse.
+*   **`fiber_data/logs/`**:
+    *   `pipeline_run.log` und schrittspezifische Logs.
+*   **`fiber_data/cache/`**:
+    *   Rohdaten (Kacheln) und Zwischenergebnisse (für Debugging).
 
 ---
 
@@ -130,10 +139,11 @@ Das System generiert am Ende einen Report über die Flächennutzung:
 
 | Status | Area (km²) |
 | :--- | :--- |
-| **Monopol Telekom** | 452.30 |
-| **Monopol Vodafone** | 120.15 |
-| **Wettbewerb** | 85.40 |
-| **White Spot** | 1250.00 |
+| **Monopol Telekom** | 33.71 |
+| **Monopol Vodafone** | 246.16 |
+| **Wettbewerb** | 74.63 |
+| **White Spot** | 531.65 |
+| **Planung** | 13.17 |
 
 ---
 

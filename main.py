@@ -5,7 +5,7 @@ import sys
 import gc
 import importlib
 from datetime import timedelta
-from config import BASE_DIR, get_log_path, PIPELINE_STEPS
+from config import BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR, get_log_path, PIPELINE_STEPS
 
 # --- WINDOWS UTF-8 FIX ---
 if sys.platform == "win32":
@@ -13,9 +13,17 @@ if sys.platform == "win32":
 
 LOG_FILE = get_log_path("pipeline_run.log")
 
+def setup_directory_structure():
+    """Ensures that the output directory structure exists."""
+    for d in [BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR]:
+        if not os.path.exists(d):
+            os.makedirs(d)
+
 def setup_central_logging():
-    if not os.path.exists(BASE_DIR):
-        os.makedirs(BASE_DIR)
+    # Setup directories first
+    setup_directory_structure()
+    
+    # Remove old main log if exists
     if os.path.exists(LOG_FILE):
         try: os.remove(LOG_FILE)
         except: pass
@@ -51,8 +59,8 @@ def run_step(step_pretty_name, module_name):
             logger.error(f"Modul {module_name} hat keine main() Funktion!")
             return False
 
-    except ImportError:
-        logger.error(f"❌ DATEI FEHLT: {module_name} nicht gefunden!")
+    except ImportError as e:
+        logger.error(f"❌ DATEI FEHLT: {module_name}. {e}")
         return False
     except Exception as e:
         logger.exception(f"❌ FEHLER in {step_pretty_name}: {e}")
@@ -68,6 +76,7 @@ def main():
     setup_central_logging()
     logger = logging.getLogger("MANAGER")
     logger.info("=== 5G INTELLIGENCE PIPELINE GESTARTET ===")
+    logger.info(f"📂 Output: {OUTPUT_DIR}")
     
     total_start = time.time()
     success_count = 0
