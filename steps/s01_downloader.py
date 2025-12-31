@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from dataclasses import dataclass
-from ..config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS
+from config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS
 
 # Log file name (derived from config logic)
 LOG_FILE = get_log_path("download.log")
@@ -138,13 +138,13 @@ def main():
     if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
     
-    print("🚀 Starte Download-Phase...")
+    logging.info("🚀 Starte Download-Phase...")
 
     all_tasks = []
     for layer in DOWNLOAD_LAYERS:
         tasks = prepare_tasks(layer, ANALYSE_BBOX)
         all_tasks.extend(tasks)
-        print(f"  -> {layer.name}: {len(tasks)} Kacheln.")
+        logging.info(f"  -> {layer.name}: {len(tasks)} Kacheln.")
 
     with ThreadPoolExecutor(max_workers=DOWNLOAD_MAX_WORKERS) as executor:
         list(tqdm(executor.map(download_worker, all_tasks), total=len(all_tasks), unit="img", colour="green"))
