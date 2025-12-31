@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from dataclasses import dataclass
-from config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS
+from ..config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS
 
 # Log file name (derived from config logic)
 LOG_FILE = get_log_path("download.log")
