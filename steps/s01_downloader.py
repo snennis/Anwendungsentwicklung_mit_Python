@@ -79,6 +79,7 @@ def download_worker(task: DownloadTask) -> bool:
                     return True
     except Exception as e:
         logging.warning(f"Fehler beim Download der Kachel {task.tile_id}")
+        pass
     return False
 
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
