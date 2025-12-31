@@ -77,8 +77,8 @@ def download_worker(task: DownloadTask) -> bool:
                     with open(task.filepath, 'wb') as f: f.write(content)
                     with open(task.filepath.replace(".png", ".pgw"), 'w') as f: f.write(task.pgw_content)
                     return True
-    except:
-        pass
+    except Exception as e:
+        logging.warning(f"Fehler beim Download der Kachel {task.tile_id}")
     return False
 
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
