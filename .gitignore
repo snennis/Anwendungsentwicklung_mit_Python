@@ -14,6 +14,5 @@ TEMP_*.tif
 **/kacheln_/
 *.gpkg
 **/cache/
-**/Glasfaser_Analyse_Project/
+**/fiber_data/
 **/old/
-Glasfaser_Analyse_Project/berlin_interaktiv.html

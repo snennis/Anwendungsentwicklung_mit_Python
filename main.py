@@ -5,30 +5,27 @@ import sys
 import gc
 import importlib
 from datetime import timedelta
+from config import BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR, get_log_path, PIPELINE_STEPS
 
 # --- WINDOWS UTF-8 FIX ---
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
 
-# --- KONFIGURATION ---
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "pipeline_run.log")
+LOG_FILE = get_log_path("pipeline_run.log")
 
-# Hier wurde Schritt 5 ergänzt!
-PIPELINE_STEPS = [
-    ("1. Download Phase", "s01_downloader"),
-    ("2. Processing Phase", "s02_processor"),
-    ("3. Cleaning Phase", "s03_cleaning"),
-    ("4. Analysis Phase", "s04_analysis"),
-    ("5. Enrichment Phase", "s05_enrichment"),
-    ("6. Visualization Phase", "s06_visualization")
-]
+def setup_directory_structure():
+    """Ensures that the output directory structure exists."""
+    for d in [BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR]:
+        if not os.path.exists(d):
+            os.makedirs(d)
 
 def setup_central_logging():
-    if not os.path.exists(HAUPTORDNER):
-        os.makedirs(HAUPTORDNER)
-    if os.path.exists(LOG_DATEINAME):
-        try: os.remove(LOG_DATEINAME)
+    # Setup directories first
+    setup_directory_structure()
+    
+    # Remove old main log if exists
+    if os.path.exists(LOG_FILE):
+        try: os.remove(LOG_FILE)
         except: pass
 
     logging.basicConfig(
@@ -36,7 +33,7 @@ def setup_central_logging():
         format='%(asctime)s | %(name)-15s | %(levelname)-8s | %(message)s',
         datefmt='%H:%M:%S',
         handlers=[
-            logging.FileHandler(LOG_DATEINAME, mode='w', encoding='utf-8'),
+            logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ]
     )
@@ -62,8 +59,8 @@ def run_step(step_pretty_name, module_name):
             logger.error(f"Modul {module_name} hat keine main() Funktion!")
             return False
 
-    except ImportError:
-        logger.error(f"❌ DATEI FEHLT: {module_name}.py nicht gefunden!")
+    except ImportError as e:
+        logger.error(f"❌ DATEI FEHLT: {module_name}. {e}")
         return False
     except Exception as e:
         logger.exception(f"❌ FEHLER in {step_pretty_name}: {e}")
@@ -79,6 +76,7 @@ def main():
     setup_central_logging()
     logger = logging.getLogger("MANAGER")
     logger.info("=== 5G INTELLIGENCE PIPELINE GESTARTET ===")
+    logger.info(f"📂 Output: {OUTPUT_DIR}")
     
     total_start = time.time()
     success_count = 0

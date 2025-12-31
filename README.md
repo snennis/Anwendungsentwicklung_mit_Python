@@ -1,143 +1,109 @@
-# 📡 Fiber Optic Intelligence Platform (Berlin/Brandenburg)
+# **📡 Fiber Optic Intelligence Platform**
 
-![Python](https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
-![Status](https://img.shields.io/badge/Status-Educational-orange?style=for-the-badge)
+Eine spezialisierte **Spatial ETL-Pipeline** zur Analyse der Glasfaser-Versorgungssituation (FTTH) in Berlin. Das System extrahiert Rasterdaten von Provider-Schnittstellen (WMS & ArcGIS REST), transformiert diese in bereinigte Vektorgeometrien und verschneidet sie mit administrativen Daten (WFS), um "White Spots" und Monopolstellungen präzise zu lokalisieren.
 
-Eine automatisierte **ETL-Pipeline** zur Analyse der Glasfaser-Versorgungssituation (FTTH) in Berlin und Brandenburg. Das System extrahiert Daten aus verschiedenen Provider-Schnittstellen (WMS & ArcGIS REST), transformiert Rasterdaten in saubere Vektorgeometrien und führt komplexe räumliche Analysen durch, um Marktsituationen (Monopole vs. Wettbewerb) und Versorgungslücken ("White Spots") zu identifizieren.
+## **🚀 Key Features**
 
----
+| Modul | Beschreibung |
+| :---- | :---- |
+| **⚡ Smart Ingestion** | Paralleler Downloader ("Scatter-Gather" Pattern) für Telekom- (WMS) und Vodafone-Netzkarten (ArcGIS REST) mit Caching-Strategie. |
+| **🗺️ Vectorization Engine** | Effiziente Transformation von Raster-Kacheln in Vektor-Polygone (rasterio & shapely) unter Nutzung von Multiprocessing. |
+| **🧹 Topology Cleaning** | Automatisierte Geometrie-Reparatur (Buffer-Dissolve-Unbuffer), um Artefakte zu entfernen und saubere Flächen für die Statistik zu gewährleisten. |
+| **🧠 Spatial Analytics** | Mengenlehre-Operationen (Intersection, Difference) zur Ermittlung von Monopolen, Wettbewerbszonen und unversorgten Gebieten. |
+| **🏙️ Context Enrichment** | Anreicherung der Daten durch WFS-Dienste (ALKIS Bezirke, Flächennutzung ISU5), um Lücken in Wohn- und Gewerbegebieten zu unterscheiden. |
 
-## 🚀 Features
+## **🏗️ Architektur**
 
-| Feature | Beschreibung |
-| :--- | :--- |
-| **⚡ High-Performance Ingestion** | Multi-threaded Downloader ("Scatter-Gather" Pattern) für Telekom- und Vodafone-Netzkarten. |
-| **🗺️ Raster-to-Vector Engine** | Speichereffiziente Stream-Verarbeitung zur Umwandlung von Pixeldaten in Vektor-Polygone. |
-| **🧹 Advanced Geometry Cleaning** | Automatische Reparatur von Topologie-Fehlern (Schließen von Artefakten, Morphological Buffering). |
-| **🧠 Spatial Intelligence** | Berechnung von Wettbewerbszonen, Monopolen, strategischen Überbauungen und Versorgungslücken. |
+Das Projekt implementiert eine modulare Pipeline-Architektur mit strikter Trennung der Verantwortlichkeiten (SoC):
 
----
+graph LR  
+    A\[01 Ingestion\] \--\>|Raw Tiles| B\[02 Processing\]  
+    B \--\>|Raw Vectors| C\[03 Cleaning\]  
+    C \--\>|Clean Vectors| D\[04 Analysis\]  
+    D \--\>|Stats| E\[05 Enrichment\]  
+    E \--\>|Context| F\[06 Visualization\]  
+    F \--\>|PNG/GPKG| G\[Output\]  
+    style A fill:\#e1f5fe,stroke:\#01579b,stroke-width:2px  
+    style B fill:\#e1f5fe,stroke:\#01579b,stroke-width:2px  
+    style C fill:\#e8f5e9,stroke:\#2e7d32,stroke-width:2px  
+    style D fill:\#e8f5e9,stroke:\#2e7d32,stroke-width:2px  
+    style E fill:\#fff3e0,stroke:\#ef6c00,stroke-width:2px  
+    style F fill:\#fff3e0,stroke:\#ef6c00,stroke-width:2px
 
-## 🏗️ Architektur & Pipeline
+### **Die Pipeline-Schritte**
 
-Das Projekt folgt einer strikten "Separation of Concerns" Architektur in 4 Phasen, orchestriert durch `pipeline_manager.py`:
+1. **Downloader (s01):** Erntet Kacheln basierend auf einer Bounding Box. Umgeht Server-Limits durch intelligentes Threading.  
+2. **Processor (s02):** Extrahiert Farbbereiche (z.B. Magenta für Telekom) aus den Bildern und konvertiert sie in Geometrien. Nutzt pyogrio für performantes Schreiben von GeoPackages.  
+3. **Cleaning (s03):** Bereinigt die Roh-Vektoren. Schließt Lücken zwischen Kacheln und entfernt Rauschen durch morphologische Operationen.  
+4. **Analysis (s04):** Berechnet die Marktanteile. Reprojiziert alles nach **EPSG:25833 (UTM 33N)** für exakte Flächenberechnungen.  
+5. **Enrichment (s05):** Verbindet die Netzdaten mit der Flächennutzung.  
+   * *Fragestellung:* "Welche Gewerbegebiete haben kein Glasfaser?"  
+   * *Technik:* Spatial Join und Overlay-Analysen mit WFS-Live-Daten.  
+6. **Visualization (s06):** Erstellt eine hochauflösende Strategie-Karte mittels matplotlib und contextily (Basemaps) sowie detaillierte Statistiken pro Bezirk.
 
-```mermaid
-graph LR
-    A[01 Downloader] -->|Raw Tiles| B[02 Processor]
-    B -->|Raw Vectors| C[03 Cleaner]
-    C -->|Clean Vectors| D[04 Analyzer]
-    D -->|Base Analysis| E[05 Enrichment]
-    E -->|Insights| F[06 Visualization]
-    F -->|Maps| G[GeoPackage / PNG / HTML]
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#bbf,stroke:#333,stroke-width:2px
-    style C fill:#bfb,stroke:#333,stroke-width:2px
-    style D fill:#fbf,stroke:#333,stroke-width:2px
-    style E fill:#fc9,stroke:#333,stroke-width:2px
-    style F fill:#ff9,stroke:#333,stroke-width:2px
-    style G fill:#ff9,stroke:#333,stroke-width:2px
-```
+## **📂 Projektstruktur**
 
-### 1. Download Phase (`s01_downloader.py`)
-Nutzt `ThreadPoolExecutor` für parallele Requests. Unterstützt WMS (Telekom) und ArcGIS REST (Vodafone) Protokolle. Intelligentes Caching verhindert redundante Downloads.
+fiber\_data/  
+│   ├── cache/             \# Temporäre Speicher (Tiles, Roh-GPKGs)  
+│   ├── logs/              \# Ausführliche Logs pro Schritt  
+│   └── output/            \# Ergebnisse (Master-GPKG, Karten)  
+├── config.py              \# Zentrale Konfiguration (URLs, Farben, Pfade)  
+├── main.py                \# Pipeline-Manager & Entry Point  
+├── steps/                 \# Modulare Logik  
+│   ├── s01\_downloader.py  
+│   ├── s02\_processor.py  
+│   ├── s03\_cleaning.py  
+│   ├── s04\_analysis.py  
+│   ├── s05\_enrichment.py  
+│   └── s06\_visualization.py  
+└── requirements.txt
 
-### 2. Processing Phase (`s02_processor.py`)
-Vektorisierung der Rasterdaten mittels `rasterio` und `shapely`. Enthält einen **Memory-Safe Iterator**, der auch riesige Datensätze ohne RAM-Overflow verarbeitet. Nutzt `scipy` für morphologisches Schließen kleiner Pixel-Lücken.
+## **🛠️ Installation & Setup**
 
-### 3. Cleaning Phase (`s03_cleaning.py`)
-Geometrische Reparatur der Rohdaten. Wendet einen **Buffer-Dissolve-Unbuffer** Algorithmus an, um "Korridore" und systematische Lücken in den Provider-Daten zu schließen und saubere Flächen für die Flächenberechnung zu erzeugen.
+### **Voraussetzungen**
 
-### 4. Analysis Phase (`s04_analysis.py`)
-Führt die Mengenlehre (Intersection, Difference, Union) auf den bereinigten Layern durch. Projiziert Daten nach **EPSG:25833 (ETRS89 / UTM zone 33N)** für präzise Flächenberechnungen in km².
+* **Python 3.9+**  
+* Systembibliotheken für Geodaten (GDAL, PROJ)
 
-### 5. Enrichment Phase (`s05_enrichment.py`)
-Verknüpft die Analyse-Ergebnisse mit Kontextdaten:
-*   **B2B-Potential**: Identifiziert unversorgte Gewerbegebiete durch Verschneidung mit OSM-Landuse-Daten.
-*   **Kiez-Analyse**: Aggregiert Versorgungslücken auf Ebene der Berliner Planungsräume (LOR), um unterversorgte Wohngegenden zu lokalisieren.
+### **Installation**
 
-### 6. Visualization Phase (`s06_visualization.py`)
-Erstellt visuelle Repräsentationen der Analyseergebnisse:
-*   **Strategie-Karte (PNG)**: Statische Karte mit Corporate-Identity-Farben für Präsentationen.
-*   **Interaktive Web-Karte (HTML)**: Folium-basierte Karte mit Layer-Control (Telekom, Vodafone, Wettbewerb, Lücken, Geplant) und Choropleth-Darstellung der Bezirksversorgung.
+1. **Repository klonen**  
+   git clone https://github.com/snennis/Anwendungsentwicklung_mit_Python.git  
+   cd Anwendungsentwicklung\_mit\_Python
 
----
+2. **Environment aufsetzen** Es wird empfohlen, conda zu nutzen, um Konflikte mit C-Bibliotheken (GDAL) zu vermeiden:  
+   conda create \-n fiber\_intelligence python=3.10  
+   conda activate fiber\_intelligence  
+   pip install \-r requirements.txt  
+   **Hinweis:** Das Projekt nutzt pyogrio als Engine für GeoPandas, um Schreibvorgänge drastisch zu beschleunigen. Stellen Sie sicher, dass dies korrekt installiert ist.
 
-## 📂 Directory Structure
+## **💻 Nutzung**
 
-```text
-.
-├── pipeline_manager.py    # Main entry point
-├── s01_downloader.py      # Data ingestion
-├── s02_processor.py       # Raster processing
-├── s03_cleaning.py        # Geometry cleaning
-├── s04_analysis.py        # Spatial analysis
-├── s05_enrichment.py      # Context enrichment
-├── s06_visualization.py   # Map generation
-├── requirements.txt       # Dependencies
-└── Glasfaser_Analyse_Project/  # Output directory
-```
+Die Pipeline ist vollautomatisiert. Der Manager (main.py) steuert den Ablauf, fängt Fehler ab und misst die Laufzeiten.
 
----
+python main.py
 
-## 🛠️ Installation
+### **Konfiguration**
 
-### Voraussetzungen
-*   Python 3.9 oder höher
-*   Empfohlen: Ein virtuelles Environment (`venv` oder `conda`)
+Anpassungen an Untersuchungsgebiet (BBox), Provider-URLs oder Farbcodes können zentral in der config.py vorgenommen werden.
 
-### Setup
+### **Output (fiber\_data/output/)**
 
-1.  **Repository klonen**
-    ```bash
-    git clone https://github.com/snennis/Anwendungsentwicklung_mit_Python.git
-    cd Anwendungsentwicklung_mit_Python
-    ```
+* **05\_master\_analysis.gpkg**: Das vollständige GeoPackage. Enthält Layer für Monopole, Wettbewerb, Lücken und angereicherte Nutzungsdaten.  
+* **berlin\_strategie\_karte.png**: Eine statische, druckfertige Karte der Versorgungssituation.  
+* **Terminal-Report**: Eine Zusammenfassung der Flächenanteile (km²) direkt nach Durchlauf.
 
-2.  **Abhängigkeiten installieren**
-    Die Analyse benötigt diverse GIS-Bibliotheken (GDAL, Rasterio, GeoPandas).
-    ```bash
-    pip install -r requirements.txt
-    ```
+## **📊 Exemplarische Ergebnisse**
 
-> [!TIP]
-> **Windows-Nutzer:** Falls die Installation von `fiona` oder `rasterio` fehlschlägt, nutzen Sie bitte vorkompilierte Wheels oder `conda install geopandas`.
+Das System liefert quantitative Aussagen zur digitalen Infrastruktur:
 
----
+| Status | Fläche (km²) | Beschreibung |
+| :---- | :---- | :---- |
+| **Wettbewerb** | 74.63 | Infrastruktur beider Provider vorhanden |
+| **Monopol Telekom** | 33.71 | Exklusive Versorgung durch Telekom |
+| **Monopol Vodafone** | 246.16 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
+| **White Spot** | 531.65 | Keine gigabitfähige Infrastruktur erkannt |
 
-## 💻 Nutzung
+## **⚠️ Disclaimer**
 
-Die gesamte Pipeline wird über den zentralen Manager gesteuert. Dieser kümmert sich um Logging, Zeitmessung und Speicherbereinigung.
-
-```bash
-python pipeline_manager.py
-```
-
-### Output
-Die Ergebnisse landen im Ordner `Glasfaser_Analyse_Project`:
-*   `pipeline_run.log`: Detaillierte Logs aller Schritte.
-*   `04_analysis_merged.gpkg`: Das Basis-Ergebnis mit Wettbewerbs-Daten.
-*   `05_enriched_analysis.gpkg`: Das finale GeoPackage angereichert um B2B- und Kiez-Daten.
-*   `berlin_strategie_karte.png`: Statische Übersichtskarte.
-*   `berlin_interaktiv.html`: Interaktive Karte zur Detailanalyse.
-
----
-
-## 📊 Beispiel-Statistik (Auszug)
-
-Das System generiert am Ende einen Report über die Flächennutzung:
-
-| Status | Area (km²) |
-| :--- | :--- |
-| **Monopol Telekom** | 452.30 |
-| **Monopol Vodafone** | 120.15 |
-| **Wettbewerb** | 85.40 |
-| **White Spot** | 1250.00 |
-
----
-
-## ⚠️ Disclaimer
-
-> [!WARNING]
-> Dieses Projekt dient ausschließlich wissenschaftlichen und bildenden Zwecken im Rahmen eines Geoinformatik-Studiums. Die Daten werden von öffentlichen Karten-Schnittstellen der Provider bezogen. Bitte beachten Sie die Nutzungsbedingungen der jeweiligen Diensteanbieter.
+Dieses Projekt ist eine akademische Arbeit im Rahmen des Studiengangs Geoinformatik (B. Eng.). Die verwendeten Daten stammen aus öffentlichen Quellen (WMS/REST/WFS). Die Analyse stellt eine Momentaufnahme dar und dient ausschließlich Bildungszwecken.

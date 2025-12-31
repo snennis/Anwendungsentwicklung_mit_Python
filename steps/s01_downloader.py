@@ -2,36 +2,12 @@ import os
 import requests
 import logging
 from typing import Dict, Any, List
-from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
+from config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS, dataclass
 
-# --- KONFIGURATION ---
-ANALYSE_BBOX = {
-   "X_START": 1450000.0,
-   "Y_START": 6940000.0,
-   "X_ENDE": 1540000.0,
-   "Y_ENDE": 6840000.0
-}
-
-HAUPTORDNER = "Glasfaser_Analyse_Project"
-LOG_DATEINAME = os.path.join(HAUPTORDNER, "download.log")
-MAX_WORKERS = 20
-
-@dataclass
-class LayerConfig:
-    name: str
-    service_type: str
-    base_url: str
-    layers_param: str
-    kachel_breite_meter: float
-    kachel_hoehe_meter: float
-    pixel_width: int
-    pixel_height: int
-    subdir: str
-    dpi: float = 96
-    bboxSR: str = "3857"
-    imageSR: str = "3857"
+# Log file name (derived from config logic)
+LOG_FILE = get_log_path("download.log")
 
 @dataclass
 class DownloadTask:
@@ -69,9 +45,9 @@ def download_worker(task: DownloadTask) -> bool:
         pass
     return False
 
-def prepare_tasks(layer: LayerConfig, bbox: Dict, output_base: str) -> List[DownloadTask]:
+def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     tasks = []
-    save_dir = os.path.join(output_base, layer.subdir)
+    save_dir = layer.subdir # Is now full path
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     
     y = bbox["Y_START"]
@@ -109,33 +85,18 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict, output_base: str) -> List[Down
     return tasks
 
 def main():
-    if not os.path.exists(HAUPTORDNER): os.makedirs(HAUPTORDNER)
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_DATEINAME, mode='w')])
+    if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
+    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
     
     print("🚀 Starte Download-Phase...")
 
-    # Grid Parameter (Optimiert)
-    tk_res = (1488381.81 - 1487158.82) / 256.0
-    tk_dim = 2048 * tk_res
-    
-    vf_res = (1489909.16 - 1487728.32) / 1506.0
-    vf_w = 3000 * vf_res
-    vf_h = int(3000 * (1793/1506)) * vf_res
-
-    CONFIGS = [
-        LayerConfig("Telekom_Fiber_Total", "wms", "https://t-map.telekom.de/tmap2/geoserver/public/tmap/public/wms", 
-                   "public:coverage_fixedline_fiber", tk_dim, tk_dim, 2048, 2048, "tiles_tk_fiber"),
-        LayerConfig("Vodafone_Fiber_Total", "arcgis", "https://netmap.vodafone.de/arcgis/rest/services/CoKart/netzabdeckung_fixnet_4x/MapServer/export", 
-                   "show:3", vf_w, vf_h, 3000, int(3000 * (1793/1506)), "tiles_vf_fiber", dpi=158.4, bboxSR="102100", imageSR="102100")
-    ]
-
     all_tasks = []
-    for layer in CONFIGS:
-        tasks = prepare_tasks(layer, ANALYSE_BBOX, HAUPTORDNER)
+    for layer in DOWNLOAD_LAYERS:
+        tasks = prepare_tasks(layer, ANALYSE_BBOX)
         all_tasks.extend(tasks)
         print(f"  -> {layer.name}: {len(tasks)} Kacheln.")
 
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    with ThreadPoolExecutor(max_workers=DOWNLOAD_MAX_WORKERS) as executor:
         list(tqdm(executor.map(download_worker, all_tasks), total=len(all_tasks), unit="img", colour="green"))
 
     print("✅ Download abgeschlossen.")
