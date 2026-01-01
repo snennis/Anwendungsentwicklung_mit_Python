@@ -13,11 +13,24 @@ LOG_FILE = get_log_path("03_cleaning.log")
 _BERLIN_BOUNDARY_CACHE = None
 
 def clean_wrapper(layer_config):
-    """Wrapper, damit der Executor nur ein Argument braucht"""
+    """
+    wrapper function
+
+    Args:
+        layer_config (dict): layer configuration
+    """
     return clean_geometry_layer(layer_config)
 
 def get_city_shape(city: str):
-    """Lädt die exakte Grenze von Berlin (ohne Brandenburg)."""
+    """
+    loads and caches berlin boundary shape
+
+    Args:
+        city (str): city name for geocoding
+
+    Returns:
+        shapely.geometry.Polygon: city boundary shape
+    """
     global _BERLIN_BOUNDARY_CACHE
     if _BERLIN_BOUNDARY_CACHE is not None:
         return _BERLIN_BOUNDARY_CACHE
@@ -37,6 +50,15 @@ def get_city_shape(city: str):
         return box(360000, 5800000, 420000, 5860000)
 
 def clean_geometry_layer(config):
+    """
+    cleans and clips a geom layer based on given config
+
+    Args:
+        config (dict): cleaning config
+
+    Returns:
+        None
+    """
     in_path = config["input"]
     out_path = config["output"]
     radius = config["radius"]
@@ -84,6 +106,9 @@ def clean_geometry_layer(config):
         print(f"   ❌ Fehler: {e}")
 
 def main():
+    """
+    main function to run cleaning in parallel
+    """
     if not os.path.exists(BASE_DIR): return
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
     
