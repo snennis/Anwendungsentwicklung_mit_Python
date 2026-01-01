@@ -149,7 +149,7 @@ def main():
     with ThreadPoolExecutor(max_workers=DOWNLOAD_MAX_WORKERS) as executor:
         list(tqdm(executor.map(download_worker, all_tasks), total=len(all_tasks), unit="img", colour="green"))
 
-    print("✅ Download abgeschlossen.")
+    logging.info("✅ Download abgeschlossen.")
 
 if __name__ == "__main__":
     main()
