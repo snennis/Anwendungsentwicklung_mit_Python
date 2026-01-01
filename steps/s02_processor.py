@@ -39,6 +39,9 @@ LOG_DATEINAME = os.path.join(HAUPTORDNER, "02_processing.log")
 
 @dataclass
 class ExtractionRule:
+    """
+    rule for extracting feats from raster
+    """
     name: str
     color_rgba: Tuple[int, int, int, int]
     output_gpkg: str
@@ -46,16 +49,38 @@ class ExtractionRule:
 
 @dataclass
 class ProcessConfig:
+    """
+    config for processing a layer
+    """
     name: str
     subdir: str
     rules: List[ExtractionRule]
 
 def hex_to_rgba(hex_code: str) -> Tuple[int, int, int, int]:
+    """
+    converts hex color code to rgba tuple
+
+    Args:
+        hex_code (str): hex color code
+
+    Returns:
+        Tuple[int, int, int, int]: rgba color tuple
+    """
     hex_code = hex_code.lstrip('#')
     rgb = tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
     return (*rgb, 255)
 
 def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
+    """
+    processes a single raster file and extracts feats based on rule
+
+    Args:
+        filepath (str): path to raster file
+        rule (ExtractionRule): extraction rule
+
+    Returns:
+        List[dict]: list of extracted feats
+    """
     features = []
     try:
         with rasterio.open(filepath) as src:
@@ -82,7 +107,16 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
         pass
     return features
 
-def process_layer_stream(config: ProcessConfig):
+def process_layer_stream(config: ProcessConfig) -> None:
+    """
+    processes a layer based on given config
+
+    Args:
+        config (ProcessConfig): processing config
+
+    Returns:
+        None
+    """
     tile_dir = os.path.join(HAUPTORDNER, config.subdir)
     files = glob.glob(os.path.join(tile_dir, "*.png"))
     valid_files = [f for f in files if os.path.exists(f.replace(".png", ".pgw"))]
@@ -105,6 +139,9 @@ def process_layer_stream(config: ProcessConfig):
             print(f"     ℹ️ Leer: {rule.name}")
 
 def main():
+    """
+    main processing function
+    """
     if not os.path.exists(HAUPTORDNER): return
     logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_DATEINAME, mode='w')])
     
