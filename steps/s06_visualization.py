@@ -30,14 +30,25 @@ DISTRICT_MAPPING = {
 }
 
 def setup_logging():
+    """
+    setup logging config
+    """
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
         handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
     )
 
-def add_north_arrow(ax):
-    """Fügt einen stilisierten Nordpfeil oben rechts hinzu."""
+def add_north_arrow(ax) -> None:
+    """
+    Adds a north arrow to the given axes
+
+    Args:
+        ax (matplotlib.axes.Axes): Axes to add the north arrow to
+
+    Returns:
+        None
+    """
     x, y, arrow_length = 0.97, 0.95, 0.05
     ax.annotate('N', xy=(x, y), xytext=(x, y-arrow_length),
                 arrowprops=dict(facecolor='black', width=4, headwidth=12),
@@ -45,6 +56,9 @@ def add_north_arrow(ax):
                 xycoords=ax.transAxes, zorder=10)
 
 def main():
+    """
+    main function to create the visualization map
+    """
     setup_logging()
     logging.info("🚀 STARTE VISUALISIERUNG (Final Fix)")
 
