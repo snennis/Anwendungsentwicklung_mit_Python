@@ -10,10 +10,22 @@ OUTPUT_GPKG = ANALYSIS_OUTPUT_GPKG
 LOG_FILE = get_log_path("04_analysis.log")
 
 def setup_logging():
+    """
+    setup logging config
+    """
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s',
                         handlers=[logging.FileHandler(LOG_FILE, mode='w'), logging.StreamHandler()])
 
 def load_clean_layer(key: str) -> gpd.GeoDataFrame:
+    """
+    loads a cleaned layer from file
+
+    Args:
+        key (str): key of the layer in ANALYSIS_INPUT_FILES
+
+    Returns:
+        gpd.GeoDataFrame: loaded geodataframe
+    """
     filepath = ANALYSIS_INPUT_FILES[key]
     if not os.path.exists(filepath):
         return gpd.GeoDataFrame(columns=['geometry', 'category'], crs=CRS)
@@ -25,7 +37,15 @@ def load_clean_layer(key: str) -> gpd.GeoDataFrame:
     return gdf
 
 def get_boundary(city: str):
-    """Lädt NUR Berlin als Referenzfläche."""
+    """
+    gets the boundary of a city, with OSM fallback to BBox
+
+    Args:
+        city (str): city name for geocoding
+
+    Returns:
+        gpd.GeoDataFrame: city boundary geodataframe
+    """
     logging.info("Lade Stadtgrenze Berlin...")
     try:
         gdf_berlin = ox.geocode_to_gdf(city)
@@ -35,11 +55,23 @@ def get_boundary(city: str):
         bbox = box(360000, 5800000, 420000, 5860000) 
         return gpd.GeoDataFrame({'geometry': [bbox]}, crs=CRS)
 
-def calculate_area_km2(gdf):
+def calculate_area_km2(gdf) -> float:
+    """
+    calculates area in km² of a geodataframe
+
+    Args:
+        gdf (gpd.GeoDataFrame): input geodataframe
+
+    Returns:
+        float: area in km²
+    """
     if gdf.empty: return 0.0
     return gdf.geometry.area.sum() / 1_000_000
 
 def main():
+    """
+    main analysis function
+    """
     setup_logging()
     logging.info("🚀 Starte Analyse (Fokus: Berlin)")
 
