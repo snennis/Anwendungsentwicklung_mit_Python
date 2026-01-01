@@ -1,4 +1,6 @@
 import os
+from typing import Optional, List
+
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -22,13 +24,26 @@ OUTPUT_GPKG = ENRICHMENT_OUTPUT_GPKG
 LOG_FILE = get_log_path("05_enrichment.log")
 
 def setup_logging():
+    """
+    setup logging configuration
+    """
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
         handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
     )
 
-def load_layer_safe(path, layer=None):
+def load_layer_safe(path, layer=None) -> Optional[gpd.GeoDataFrame]:
+    """
+    loads a geospatial layer safely, returns empty geodataframe on error
+
+    Args:
+        path (str): file path
+        layer (str, optional): layer name for multi-layer files. Defaults to None.
+
+    Returns:
+        gpd.GeoDataFrame: loaded geodataframe or empty on error
+    """
     if not os.path.exists(path):
         return gpd.GeoDataFrame()
     try:
@@ -41,7 +56,17 @@ def load_layer_safe(path, layer=None):
         logging.error(f"Ladefehler {path}: {e}")
         return gpd.GeoDataFrame()
 
-def get_wfs_data(url, name):
+def get_wfs_data(url, name) -> Optional[gpd.GeoDataFrame]:
+    """
+    loads geodata from a wfs url safely
+
+    Args:
+        url (str): wfs url
+        name (str): layer name for logging
+
+    Returns:
+        gpd.GeoDataFrame: loaded geodataframe or empty on error
+    """
     logging.info(f"Lade {name} von GDI Berlin...")
     try:
         gdf = gpd.read_file(url)
@@ -52,9 +77,16 @@ def get_wfs_data(url, name):
         logging.error(f"Download Fehler {name}: {e}")
         return gpd.GeoDataFrame()
 
-def determine_landuse_category(row_series, cols):
+def determine_landuse_category(row_series, cols) -> str:
     """
-    Intelligente Klassifizierung basierend auf ISU5 Codes.
+    classifies land use category based on row data (isu 5)
+
+    Args:
+        row_series (pd.Series): row data
+        cols (list): list of column names in the dataframe
+
+    Returns:
+        str: land use category
     """
     # 1. VERSUCH: Nutzungscode (Am sichersten)
     nutzung_col = next((c for c in cols if c.lower() in ['nutzung', 'nutz', 'fl_nutz']), None)
@@ -76,7 +108,16 @@ def determine_landuse_category(row_series, cols):
     
     return "Sonstiges"
 
-def simplify_fiber_status(status_str):
+def simplify_fiber_status(status_str) -> str:
+    """
+    simplifies fiber status string to key categories
+
+    Args:
+        status_str (str): original status string
+
+    Returns:
+        str: simplified status
+    """
     s = str(status_str)
     if "Wettbewerb" in s: return "Wettbewerb"
     if "Telekom" in s and "Monopol" in s: return "Telekom"
@@ -84,10 +125,15 @@ def simplify_fiber_status(status_str):
     if "Planung" in s: return "Geplant"
     return "Kein Netz"
 
-def process_district(args):
+def process_district(args) -> List:
     """
-    Processes a single district.
-    Args: (bezirk_row, gdf_isu, gdf_fiber_active)
+    processes a single district
+
+    Args:
+        args (tuple): (bezirk_row, gdf_isu, gdf_fiber_active)
+
+    Returns:
+        list: list of geodataframes with results
     """
     bezirk_row, gdf_isu, gdf_fiber_active = args
     bezirk_geom = bezirk_row.geometry
@@ -182,6 +228,9 @@ def process_district(args):
     return results
 
 def main():
+    """
+    main enrichment function
+    """
     setup_logging()
     logging.info("🚀 STARTE ENRICHMENT (V5.2 - Fixed Geometry Logic)")
 
