@@ -1,10 +1,17 @@
 import os
-import requests
+import asyncio
+import aiohttp
+import aiofiles
 import logging
+import time
 from typing import Dict, Any, List
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
-from config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS, dataclass
+from tqdm.asyncio import tqdm
+from config import BASE_DIR, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, dataclass
+
+# --- KONFIGURATION ---
+# Wie viele Anfragen gleichzeitig? 
+# Zu hoch = Ban Gefahr! 50 ist aggressiv, aber meist okay.
+MAX_CONCURRENT_REQUESTS = 50 
 
 @dataclass
 class DownloadTask:
@@ -21,72 +28,64 @@ def erstelle_pgw_inhalt(xmin, ymin, xmax, ymax, w_px, h_px):
     F = ymax + (E / 2.0)
     return f"{A:.10f}\n0.0\n0.0\n{E:.10f}\n{C:.10f}\n{F:.10f}\n"
 
-def get_session():
-    s = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(max_retries=3)
-    s.mount('https://', adapter)
-    return s
-
-def download_worker(task: DownloadTask) -> bool:
-    # Logger holen (nutzt die Konfiguration aus main.py)
+async def download_worker(session: aiohttp.ClientSession, task: DownloadTask, semaphore: asyncio.Semaphore) -> bool:
+    """
+    Asynchroner Worker. Nutzt Semaphore um die Anzahl gleichzeitiger Requests zu begrenzen.
+    """
     logger = logging.getLogger("DOWNLOADER")
     
-    try:
-        # Request absetzen
-        with get_session().get(task.url, params=task.params, stream=True, timeout=30) as r:
-            
-            # 1. Wirft Fehler bei 4xx oder 5xx Statuscodes
-            r.raise_for_status()
-            
-            content = r.content
-            
-            # 2. Plausibilitäts-Check (Leere Bilder vom Server abfangen)
-            if len(content) < 500:
-                logger.warning(f"⚠️  Datei zu klein (<500b), wird ignoriert: {task.tile_id}")
-                return False
-
-            # 3. Schreiben auf die Festplatte (Separat abgesichert)
-            try:
-                with open(task.filepath, 'wb') as f: 
-                    f.write(content)
-                with open(task.filepath.replace(".png", ".pgw"), 'w') as f: 
-                    f.write(task.pgw_content)
-                return True
+    # Semaphore blockiert, wenn zu viele Anfragen gleichzeitig laufen
+    async with semaphore:
+        try:
+            async with session.get(task.url, params=task.params, timeout=30) as response:
                 
-            except OSError as e:
-                # Passiert z.B. wenn Disk voll ist oder Schreibrechte fehlen
-                logger.error(f"💾 Schreibfehler bei {task.filepath}: {e}")
-                return False
+                # 1. Status Check
+                if response.status != 200:
+                    if response.status == 404:
+                        logger.debug(f"Kachel nicht gefunden (404): {task.tile_id}")
+                    elif response.status == 429:
+                        logger.critical(f"🛑 RATE LIMIT (429) bei {task.tile_id}! Wir sind zu schnell.")
+                    else:
+                        logger.error(f"❌ HTTP {response.status} bei {task.tile_id}")
+                    return False
 
-    except requests.exceptions.Timeout:
-        # Wichtig bei Massen-Downloads: Timeouts erkennen
-        logger.warning(f"⏳ Timeout (30s) bei Kachel {task.tile_id}")
-        return False
-        
-    except requests.exceptions.ConnectionError:
-        logger.error(f"🔌 Verbindungsfehler bei Kachel {task.tile_id} (Netzwerk weg?)")
-        return False
-        
-    except requests.exceptions.HTTPError as e:
-        status = e.response.status_code
-        if status == 404:
-            # 404 ist bei Kacheln oft normal (Randgebiete), daher nur Info/Debug
-            logger.info(f"Kachel nicht vorhanden (404): {task.tile_id}")
-        elif status == 429:
-             logger.critical(f"🛑 RATE LIMIT! Wir werden geblockt (429) bei {task.tile_id}")
-             # Hier könnte man theoretisch ein time.sleep einbauen
-        else:
-            logger.error(f"❌ Server-Fehler {status} bei {task.tile_id}")
-        return False
-        
-    except Exception as e:
-        # Der "Catch-All" nur für wirklich unerwartete Dinge (z.B. MemoryError)
-        logger.critical(f"🔥 Unbekannter Crash bei {task.tile_id}: {e}")
-        return False
+                # 2. Content lesen
+                content = await response.read()
+
+                # 3. Plausibilitäts-Check (Leere Bilder ignorieren)
+                if len(content) < 500:
+                    logger.warning(f"⚠️ Datei zu klein (<500b), ignoriere: {task.tile_id}")
+                    return False
+
+                # 4. Asynchrones Schreiben (Non-blocking I/O)
+                try:
+                    async with aiofiles.open(task.filepath, 'wb') as f:
+                        await f.write(content)
+                    
+                    # PGW Datei (ist winzig, kann auch blockierend geschrieben werden, aber sauberer so)
+                    pgw_path = task.filepath.replace(".png", ".pgw")
+                    async with aiofiles.open(pgw_path, 'w') as f:
+                        await f.write(task.pgw_content)
+                        
+                    return True
+
+                except OSError as e:
+                    logger.error(f"💾 Schreibfehler {task.filepath}: {e}")
+                    return False
+
+        except asyncio.TimeoutError:
+            logger.warning(f"⏳ Timeout bei {task.tile_id}")
+            return False
+        except aiohttp.ClientError as e:
+            logger.error(f"🔌 Netzwerkfehler bei {task.tile_id}: {e}")
+            return False
+        except Exception as e:
+            logger.critical(f"🔥 Crash bei {task.tile_id}: {e}")
+            return False
 
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     tasks = []
-    save_dir = layer.subdir # Is now full path
+    save_dir = layer.subdir
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     
     y = bbox["Y_START"]
@@ -116,30 +115,62 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
                     'dpi': layer.dpi, 'format': 'png32', 'transparent': 'true',
                     'bboxSR': layer.bboxSR, 'imageSR': layer.imageSR, 'layers': layer.layers_param, 'f': 'image'
                 }
-            tasks.append(DownloadTask(url=layer.base_url, params=params, filepath=fpath, pgw_content=pgw, tile_id=f"{row_idx}_{col_idx}"))
+            
+            # Tile ID für Logs
+            t_id = f"{layer.name}_{row_idx}_{col_idx}"
+            tasks.append(DownloadTask(url=layer.base_url, params=params, filepath=fpath, pgw_content=pgw, tile_id=t_id))
+            
             x = current_x_max
             col_idx += 1
         y = current_y_min
         row_idx += 1
     return tasks
 
-def main():
-    if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
-    # Logging is configured in main.py
-    
-    print("🚀 Starte Download-Phase...")
-    print(f"  -> Max. Worker: {DOWNLOAD_MAX_WORKERS}")
+async def run_async_download():
+    # Logging Setup für Standalone-Test
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO)
+        
+    print(f"🚀 Starte Async-Downloader (High Performance)")
+    print(f"   -> Konkurrenz: {MAX_CONCURRENT_REQUESTS} parallele Anfragen")
 
     all_tasks = []
     for layer in DOWNLOAD_LAYERS:
-        tasks = prepare_tasks(layer, ANALYSE_BBOX)
-        all_tasks.extend(tasks)
-        print(f"  -> {layer.name}: {len(tasks)} Kacheln.")
+        t = prepare_tasks(layer, ANALYSE_BBOX)
+        all_tasks.extend(t)
+        print(f"   -> {layer.name}: {len(t)} Kacheln vorbereitet.")
 
-    with ThreadPoolExecutor(max_workers=DOWNLOAD_MAX_WORKERS) as executor:
-        list(tqdm(executor.map(download_worker, all_tasks), total=len(all_tasks), unit="img", colour="green"))
+    # Semaphore begrenzt die maximale Anzahl gleichzeitiger Verbindungen
+    sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    print("✅ Download abgeschlossen.")
+    # TCPConnector optimiert connection pooling
+    # limit=0 bedeutet keine harte Grenze im Connector, wir regeln das über Semaphore
+    connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+
+    timeout = aiohttp.ClientTimeout(total=60) # Generelles Timeout
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        tasks = [download_worker(session, task, sem) for task in all_tasks]
+        
+        # tqdm.gather zeigt den Fortschrittsbalken asynchron an
+        results = await tqdm.gather(*tasks, unit="img", colour="green", desc="Downloading")
+    
+    success_count = sum(results)
+    print(f"✅ Download abgeschlossen: {success_count}/{len(all_tasks)} erfolgreich.")
+
+def main():
+    if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
+    
+    start = time.time()
+    
+    # Windows Selector Event Loop Policy Fix (wichtig für Python 3.8+ auf Windows)
+    if os.name == 'nt':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        
+    asyncio.run(run_async_download())
+    
+    duration = time.time() - start
+    print(f"⏱️  Dauer: {duration:.2f} Sekunden")
 
 if __name__ == "__main__":
     main()
