@@ -4,15 +4,10 @@ import pandas as pd
 import numpy as np
 import logging
 import warnings
-import ssl
 import traceback
 from tqdm import tqdm
 from concurrent.futures import ProcessPoolExecutor
 from config import BASE_DIR, get_log_path, CRS, ENRICHMENT_INPUT_GPKG, ENRICHMENT_OUTPUT_GPKG, WFS_URLS
-
-# --- SSL-HACK START ---
-ssl._create_default_https_context = ssl._create_unverified_context
-# --- SSL-HACK END ---
 
 # Warnungen bei GeoPandas Overlay unterdrücken
 warnings.filterwarnings("ignore")
@@ -211,8 +206,23 @@ def main():
 
     results_list = []
     task_args = []
+    # Spatial Index sicherstellen
+    gdf_isu.sindex
+    gdf_fiber_active.sindex
+
     for _, row in gdf_bezirke.iterrows():
-        task_args.append((row, gdf_isu, gdf_fiber_active))
+        # 1. Vor-Filtern im Main-Prozess (Spatial Index Query)
+        # Wir schneiden grob die BBox aus. Das geht super schnell.
+        bbox = row.geometry.bounds
+        
+        # cx slice: Schneidet alles aus, was die BBox berührt
+        isu_subset = gdf_isu.cx[bbox[0]:bbox[2], bbox[1]:bbox[3]].copy()
+        fiber_subset = gdf_fiber_active.cx[bbox[0]:bbox[2], bbox[1]:bbox[3]].copy()
+        
+        if isu_subset.empty: continue
+
+        # 2. Nur das kleine Paket an den Worker schicken
+        task_args.append((row, isu_subset, fiber_subset))
         
     max_workers = min(os.cpu_count(), len(gdf_bezirke))
     

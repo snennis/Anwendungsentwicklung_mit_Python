@@ -28,18 +28,61 @@ def get_session():
     return s
 
 def download_worker(task: DownloadTask) -> bool:
-    # FORCE EXECUTION: Do not skip existing
+    # Logger holen (nutzt die Konfiguration aus main.py)
+    logger = logging.getLogger("DOWNLOADER")
+    
     try:
+        # Request absetzen
         with get_session().get(task.url, params=task.params, stream=True, timeout=30) as r:
-            if r.status_code == 200:
-                content = r.content
-                if len(content) > 500:
-                    with open(task.filepath, 'wb') as f: f.write(content)
-                    with open(task.filepath.replace(".png", ".pgw"), 'w') as f: f.write(task.pgw_content)
-                    return True
-    except:
-        pass
-    return False
+            
+            # 1. Wirft Fehler bei 4xx oder 5xx Statuscodes
+            r.raise_for_status()
+            
+            content = r.content
+            
+            # 2. Plausibilitäts-Check (Leere Bilder vom Server abfangen)
+            if len(content) < 500:
+                logger.warning(f"⚠️  Datei zu klein (<500b), wird ignoriert: {task.tile_id}")
+                return False
+
+            # 3. Schreiben auf die Festplatte (Separat abgesichert)
+            try:
+                with open(task.filepath, 'wb') as f: 
+                    f.write(content)
+                with open(task.filepath.replace(".png", ".pgw"), 'w') as f: 
+                    f.write(task.pgw_content)
+                return True
+                
+            except OSError as e:
+                # Passiert z.B. wenn Disk voll ist oder Schreibrechte fehlen
+                logger.error(f"💾 Schreibfehler bei {task.filepath}: {e}")
+                return False
+
+    except requests.exceptions.Timeout:
+        # Wichtig bei Massen-Downloads: Timeouts erkennen
+        logger.warning(f"⏳ Timeout (30s) bei Kachel {task.tile_id}")
+        return False
+        
+    except requests.exceptions.ConnectionError:
+        logger.error(f"🔌 Verbindungsfehler bei Kachel {task.tile_id} (Netzwerk weg?)")
+        return False
+        
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code
+        if status == 404:
+            # 404 ist bei Kacheln oft normal (Randgebiete), daher nur Info/Debug
+            logger.info(f"Kachel nicht vorhanden (404): {task.tile_id}")
+        elif status == 429:
+             logger.critical(f"🛑 RATE LIMIT! Wir werden geblockt (429) bei {task.tile_id}")
+             # Hier könnte man theoretisch ein time.sleep einbauen
+        else:
+            logger.error(f"❌ Server-Fehler {status} bei {task.tile_id}")
+        return False
+        
+    except Exception as e:
+        # Der "Catch-All" nur für wirklich unerwartete Dinge (z.B. MemoryError)
+        logger.critical(f"🔥 Unbekannter Crash bei {task.tile_id}: {e}")
+        return False
 
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     tasks = []
@@ -85,6 +128,7 @@ def main():
     # Logging is configured in main.py
     
     print("🚀 Starte Download-Phase...")
+    print(f"  -> Max. Worker: {DOWNLOAD_MAX_WORKERS}")
 
     all_tasks = []
     for layer in DOWNLOAD_LAYERS:

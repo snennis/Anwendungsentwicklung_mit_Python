@@ -92,8 +92,8 @@ def main():
         gdf_competition, gdf_monopol_tk, gdf_monopol_vf, gdf_white, gdf_tk_plan
     ], ignore_index=True)
     
-    # Bereinigen leerer Geometrien (wichtig nach Overlay!)
-    gdf_final = gdf_final[~gdf_final.is_empty & gdf_final.geometry.notna()]
+    logging.info("Verschlanke Geometrien (Simplify 1m)...")
+    gdf_final['geometry'] = gdf_final.geometry.simplify(tolerance=1.0, preserve_topology=True)
 
     cols = ['geometry', 'status', 'type']
     gdf_final = gdf_final[[c for c in cols if c in gdf_final.columns]]

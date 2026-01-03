@@ -108,8 +108,7 @@ def main():
             ax, 
             crs=gdf_bezirke.crs.to_string(), 
             source=cx.providers.CartoDB.PositronNoLabels, # NoLabels, damit wir unsere eigenen Namen nutzen können
-            attribution=False,
-            zoom=12 # Fixer Zoom verhindert Speicherüberlauf (Memory Error)
+            zoom=11
         )
     except Exception as e:
         logging.warning(f"Konnte Basemap nicht laden: {e}")
