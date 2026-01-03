@@ -7,7 +7,7 @@ Eine spezialisierte **Spatial ETL-Pipeline** zur Analyse der Glasfaser-Versorgun
 | Modul | Beschreibung |
 | :---- | :---- |
 | **⚡ Smart Ingestion** | Paralleler Downloader ("Scatter-Gather" Pattern) für Telekom- (WMS) und Vodafone-Netzkarten (ArcGIS REST) mit Caching-Strategie. |
-| **🗺️ Vectorization Engine** | Effiziente Transformation von Raster-Kacheln in Vektor-Polygone (rasterio & shapely) unter Nutzung von Multiprocessing. |
+| **🗺️ Vectorization & Clipping** | Transformation von Raster in Vektor & dynamischer Download der Stadtgrenze (OSMnx) für exaktes Clipping (keine rechteckige BBox mehr). |
 | **🧹 Topology Cleaning** | Automatisierte Geometrie-Reparatur (Buffer-Dissolve-Unbuffer), um Artefakte zu entfernen und saubere Flächen für die Statistik zu gewährleisten. |
 | **🧠 Spatial Analytics** | Mengenlehre-Operationen (Intersection, Difference) zur Ermittlung von Monopolen, Wettbewerbszonen und unversorgten Gebieten. |
 | **🏙️ Context Enrichment** | Anreicherung der Daten durch WFS-Dienste (ALKIS Bezirke, Flächennutzung ISU5), um Lücken in Wohn- und Gewerbegebieten zu unterscheiden. |
@@ -37,8 +37,8 @@ graph LR
 
 1. **Downloader (s01):** Erntet Kacheln basierend auf einer Bounding Box. Umgeht Server-Limits durch intelligentes Threading.  
 2. **Processor (s02):** Extrahiert Farbbereiche (z.B. Magenta für Telekom) aus den Bildern und konvertiert sie in Geometrien. Nutzt pyogrio für performantes Schreiben von GeoPackages.  
-3. **Cleaning (s03):** Bereinigt die Roh-Vektoren. Schließt Lücken zwischen Kacheln und entfernt Rauschen durch morphologische Operationen.  
-4. **Analysis (s04):** Berechnet die Marktanteile. Reprojiziert alles nach **EPSG:25833 (UTM 33N)** für exakte Flächenberechnungen.  
+3. **Cleaning (s03):** Lädt die exakte Stadtgrenze via **OSMnx** und schneidet (Clips) die Daten passgenau zu. Bereinigt Artefakte und schließt Lücken durch Buffer-Operationen.
+4. **Analysis (s04):** Berechnet Marktanteile und White Spots innerhalb der realen Stadtgrenze. Reprojiziert auf **EPSG:25833** für präzise Flächenberechnung. 
 5. **Enrichment (s05):** Verbindet die Netzdaten mit der Flächennutzung.  
    * *Fragestellung:* "Welche Gewerbegebiete haben kein Glasfaser?"  
    * *Technik:* Spatial Join und Overlay-Analysen mit WFS-Live-Daten.  
@@ -70,14 +70,22 @@ fiber\_data/
 
 ### **Installation**
 
-1. **Repository klonen**  
+1. **Repository klonen**
+   ```bash
    git clone https://github.com/snennis/Anwendungsentwicklung_mit_Python.git  
    cd Anwendungsentwicklung\_mit\_Python
+   ```
 
-2. **Environment aufsetzen** Es wird empfohlen, conda zu nutzen, um Konflikte mit C-Bibliotheken (GDAL) zu vermeiden:  
-   conda create \-n fiber\_intelligence python=3.10  
-   conda activate fiber\_intelligence  
-   pip install \-r requirements.txt  
+2. **Environment aufsetzen**
+   ```bash
+   python -m venv venv
+   # Windows
+   .\venv\Scripts\activate
+   # Linux / Mac
+   source venv/bin/activate
+   
+   pip install -r requirements.txt
+   ```
    **Hinweis:** Das Projekt nutzt pyogrio als Engine für GeoPandas, um Schreibvorgänge drastisch zu beschleunigen. Stellen Sie sicher, dass dies korrekt installiert ist.
 
 ## **💻 Nutzung**
@@ -96,16 +104,16 @@ Anpassungen an Untersuchungsgebiet (BBox), Provider-URLs oder Farbcodes können 
 * **berlin\_strategie\_karte.png**: Eine statische, druckfertige Karte der Versorgungssituation.  
 * **Terminal-Report**: Eine Zusammenfassung der Flächenanteile (km²) direkt nach Durchlauf.
 
-## **📊 Exemplarische Ergebnisse**
+## **📊 Exemplarische Ergebnisse (Stand: 2026)**
 
 Das System liefert quantitative Aussagen zur digitalen Infrastruktur:
 
 | Status | Fläche (km²) | Beschreibung |
 | :---- | :---- | :---- |
-| **Wettbewerb** | 74.63 | Infrastruktur beider Provider vorhanden |
+| **Wettbewerb** | 74.67 | Infrastruktur beider Provider vorhanden |
 | **Monopol Telekom** | 33.71 | Exklusive Versorgung durch Telekom |
-| **Monopol Vodafone** | 246.16 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
-| **White Spot** | 531.65 | Keine gigabitfähige Infrastruktur erkannt |
+| **Monopol Vodafone** | 246.19 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
+| **White Spot** | 531.58 | Keine gigabitfähige Infrastruktur erkannt |
 
 ## **⚠️ Disclaimer**
 
