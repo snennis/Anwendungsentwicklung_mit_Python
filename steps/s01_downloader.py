@@ -6,9 +6,6 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 from config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS, dataclass
 
-# Log file name (derived from config logic)
-LOG_FILE = get_log_path("download.log")
-
 @dataclass
 class DownloadTask:
     url: str
@@ -31,8 +28,7 @@ def get_session():
     return s
 
 def download_worker(task: DownloadTask) -> bool:
-    if os.path.exists(task.filepath):
-        return True 
+    # FORCE EXECUTION: Do not skip existing
     try:
         with get_session().get(task.url, params=task.params, stream=True, timeout=30) as r:
             if r.status_code == 200:
@@ -86,7 +82,7 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
 
 def main():
     if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
+    # Logging is configured in main.py
     
     print("🚀 Starte Download-Phase...")
 

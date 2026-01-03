@@ -16,19 +16,22 @@ Eine spezialisierte **Spatial ETL-Pipeline** zur Analyse der Glasfaser-Versorgun
 
 Das Projekt implementiert eine modulare Pipeline-Architektur mit strikter Trennung der Verantwortlichkeiten (SoC):
 
-graph LR  
-    A\[01 Ingestion\] \--\>|Raw Tiles| B\[02 Processing\]  
-    B \--\>|Raw Vectors| C\[03 Cleaning\]  
-    C \--\>|Clean Vectors| D\[04 Analysis\]  
-    D \--\>|Stats| E\[05 Enrichment\]  
-    E \--\>|Context| F\[06 Visualization\]  
-    F \--\>|PNG/GPKG| G\[Output\]  
-    style A fill:\#e1f5fe,stroke:\#01579b,stroke-width:2px  
-    style B fill:\#e1f5fe,stroke:\#01579b,stroke-width:2px  
-    style C fill:\#e8f5e9,stroke:\#2e7d32,stroke-width:2px  
-    style D fill:\#e8f5e9,stroke:\#2e7d32,stroke-width:2px  
-    style E fill:\#fff3e0,stroke:\#ef6c00,stroke-width:2px  
-    style F fill:\#fff3e0,stroke:\#ef6c00,stroke-width:2px
+```mermaid
+graph LR
+    A[01 Downloader] -->|Raw Tiles| B[02 Processor]
+    B -->|Raw Vectors| C[03 Cleaner]
+    C -->|Clean Vectors| D[04 Analyzer]
+    D -->|Base Analysis| E[05 Enrichment]
+    E -->|Insights| F[06 Visualization]
+    F -->|Maps| G[GeoPackage / PNG / HTML]
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#bbf,stroke:#333,stroke-width:2px
+    style C fill:#bfb,stroke:#333,stroke-width:2px
+    style D fill:#fbf,stroke:#333,stroke-width:2px
+    style E fill:#fc9,stroke:#333,stroke-width:2px
+    style F fill:#ff9,stroke:#333,stroke-width:2px
+    style G fill:#ff9,stroke:#333,stroke-width:2px
+```
 
 ### **Die Pipeline-Schritte**
 

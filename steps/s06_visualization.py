@@ -10,7 +10,7 @@ from config import get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG
 
 INPUT_GPKG = VISUALIZATION_INPUT_GPKG
 OUTPUT_MAP_PNG = VISUALIZATION_MAP_PNG
-LOG_FILE = get_log_path("06_visualization.log")
+LOG_FILE = None # removed custom log assignment
 COLORS = VISUALIZATION_COLORS
 
 # Mapping: ARS-Schlüssel -> Name
@@ -29,12 +29,7 @@ DISTRICT_MAPPING = {
     '11000012': 'Reinickendorf'
 }
 
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
-    )
+# setup_logging removed
 
 def add_north_arrow(ax):
     """Fügt einen stilisierten Nordpfeil oben rechts hinzu."""
@@ -45,7 +40,7 @@ def add_north_arrow(ax):
                 xycoords=ax.transAxes, zorder=10)
 
 def main():
-    setup_logging()
+    # setup_logging() handled by main.py
     logging.info("🚀 STARTE VISUALISIERUNG (Final Fix)")
 
     if not os.path.exists(INPUT_GPKG):

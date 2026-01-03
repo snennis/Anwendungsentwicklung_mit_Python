@@ -7,7 +7,7 @@ from shapely.geometry import box
 from concurrent.futures import ProcessPoolExecutor
 from config import BASE_DIR, get_log_path, CRS, CLEANING_LAYERS
 
-LOG_FILE = get_log_path("03_cleaning.log")
+# LOG_FILE removed
 
 # Cache für die Grenze
 _BERLIN_BOUNDARY_CACHE = None

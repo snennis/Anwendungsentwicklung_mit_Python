@@ -33,9 +33,7 @@ try:
 except ImportError:
     SCIPY_AVAILABLE = False
 
-from config import BASE_DIR, get_log_path, ProcessConfig, ExtractionRule, PROCESSING_LAYERS
-
-LOG_FILE = get_log_path("02_processing.log")
+from config import BASE_DIR, get_log_path, ProcessConfig, ExtractionRule, PROCESSING_LAYERS, DOWNLOAD_MAX_WORKERS
 
 def process_single_file_wrapper(args):
     """Wrapper for multiprocessing to unpack arguments."""
@@ -71,6 +69,7 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
 def process_layer_stream(config: ProcessConfig):
     tile_dir = config.subdir # Full path
     files = glob.glob(os.path.join(tile_dir, "*.png"))
+    # Nehme nur Dateien die sowohl .png als auch .pgw Datei haben
     valid_files = [f for f in files if os.path.exists(f.replace(".png", ".pgw"))]
     
     print(f"⚙️ Verarbeite {config.name} ({len(valid_files)} Kacheln)...")
@@ -78,9 +77,8 @@ def process_layer_stream(config: ProcessConfig):
     for rule in config.rules:
         all_features = []
         
-        # Multiprocessing Setup
         # Wir nutzen alle Kerne für maximale Geschwindigkeit
-        max_workers = os.cpu_count()
+        max_workers = DOWNLOAD_MAX_WORKERS
         
         task_args = [(f, rule) for f in valid_files]
         
@@ -108,8 +106,8 @@ def process_layer_stream(config: ProcessConfig):
             print(f"     ℹ️ Leer: {rule.name}")
 
 def main():
-    if not os.path.exists(BASE_DIR): return
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
+    if not os.path.exists(BASE_DIR): return     
+    # Logging configured in main.py
     
     for layer in PROCESSING_LAYERS: process_layer_stream(layer)
 

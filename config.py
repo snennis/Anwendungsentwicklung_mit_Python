@@ -8,14 +8,14 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
-# Ensure directories exist (simple check helper for scripts)
-# Note: Actual creation often happens in steps or main, but we define paths here.
-
 CRS = "EPSG:25833"  # UTM 33N (Berlin Standard)
 
 # --- LOGGING CONFIG ---
-def get_log_path(filename: str) -> str:
-    return os.path.join(LOG_DIR, filename)
+LOG_FILE_PATH = os.path.join(LOG_DIR, "pipeline_full.log")
+
+def get_log_path(filename: str = None) -> str:
+    """Returns the central log file path."""
+    return LOG_FILE_PATH
 
 # --- S01 DOWNLOADER CONFIG ---
 ANALYSE_BBOX = {
@@ -25,7 +25,7 @@ ANALYSE_BBOX = {
     "Y_ENDE": 6840000.0
 }
 
-DOWNLOAD_MAX_WORKERS = 20
+DOWNLOAD_MAX_WORKERS = os.cpu_count()
 
 @dataclass
 class LayerConfig:

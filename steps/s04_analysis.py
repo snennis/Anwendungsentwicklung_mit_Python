@@ -7,11 +7,9 @@ import logging
 from config import BASE_DIR, get_log_path, CRS, ANALYSIS_INPUT_FILES, ANALYSIS_OUTPUT_GPKG
 
 OUTPUT_GPKG = ANALYSIS_OUTPUT_GPKG
-LOG_FILE = get_log_path("04_analysis.log")
+# LOG_FILE removed -- logs to central pipeline log
 
-def setup_logging():
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s',
-                        handlers=[logging.FileHandler(LOG_FILE, mode='w'), logging.StreamHandler()])
+# setup_logging removed
 
 def load_clean_layer(key: str) -> gpd.GeoDataFrame:
     filepath = ANALYSIS_INPUT_FILES[key]
@@ -40,7 +38,7 @@ def calculate_area_km2(gdf):
     return gdf.geometry.area.sum() / 1_000_000
 
 def main():
-    setup_logging()
+    # setup_logging() handled by main.py
     logging.info("🚀 Starte Analyse (Fokus: Berlin)")
 
     # 1. LADEN

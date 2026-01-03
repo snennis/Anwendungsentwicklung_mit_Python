@@ -19,14 +19,9 @@ warnings.filterwarnings("ignore")
 
 INPUT_GPKG = ENRICHMENT_INPUT_GPKG
 OUTPUT_GPKG = ENRICHMENT_OUTPUT_GPKG
-LOG_FILE = get_log_path("05_enrichment.log")
+# LOG_FILE removed
 
-def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s | %(levelname)-8s | %(message)s',
-        handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
-    )
+# setup_logging removed
 
 def load_layer_safe(path, layer=None):
     if not os.path.exists(path):
@@ -182,7 +177,7 @@ def process_district(args):
     return results
 
 def main():
-    setup_logging()
+    # setup_logging() handled by main.py
     logging.info("🚀 STARTE ENRICHMENT (V5.2 - Fixed Geometry Logic)")
 
     # 1. DATEN LADEN

@@ -5,13 +5,11 @@ import sys
 import gc
 import importlib
 from datetime import timedelta
-from config import BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR, get_log_path, PIPELINE_STEPS
+from config import BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR, LOG_FILE_PATH, PIPELINE_STEPS
 
 # --- WINDOWS UTF-8 FIX ---
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
-
-LOG_FILE = get_log_path("pipeline_run.log")
 
 def setup_directory_structure():
     """Ensures that the output directory structure exists."""
@@ -24,8 +22,8 @@ def setup_central_logging():
     setup_directory_structure()
     
     # Remove old main log if exists
-    if os.path.exists(LOG_FILE):
-        try: os.remove(LOG_FILE)
+    if os.path.exists(LOG_FILE_PATH):
+        try: os.remove(LOG_FILE_PATH)
         except: pass
 
     logging.basicConfig(
@@ -33,7 +31,7 @@ def setup_central_logging():
         format='%(asctime)s | %(name)-15s | %(levelname)-8s | %(message)s',
         datefmt='%H:%M:%S',
         handlers=[
-            logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'),
+            logging.FileHandler(LOG_FILE_PATH, mode='w', encoding='utf-8'),
             logging.StreamHandler(sys.stdout)
         ]
     )
