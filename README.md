@@ -107,8 +107,15 @@ Anpassungen an Untersuchungsgebiet (BBox), Provider-URLs oder Farbcodes können 
 
 ## **📊 Aktuelle Ergebnisse (Stand: 2026)**
 
+### **Visualisierung der Versorgungslücken**
+Die folgende Karte zeigt die identifizierten "White Spots", gefiltert nach ihrer wirtschaftlichen Relevanz (Wohnen/Gewerbe vs. Natur).
+
+![Strategische Glasfaser-Karte Berlin](assets/berlin_strategie_karte.png)
+
+---
+
 ### **1. Infrastruktur-Status (Gesamtfläche)**
-Basis-Analyse der Netzabdeckung in Berlin:
+Basis-Analyse der Netzabdeckung über das gesamte Stadtgebiet:
 
 | Status | Fläche (km²) | Beschreibung |
 | :---- | :---- | :---- |
@@ -118,13 +125,26 @@ Basis-Analyse der Netzabdeckung in Berlin:
 | **Kein Netz (White Spot)** | 531.65 | Keine gigabitfähige Infrastruktur erkannt |
 
 ### **2. Vertriebs-Potenzial (Smart Analysis)**
-Filterung der "White Spots" nach Relevanz (Wohnen/Gewerbe vs. Wald/Wasser). 
-**Ergebnis:** Von den 531 km² "White Spots" sind nur ca. 100-120 km² wirtschaftlich relevant.
+Durch die Verschneidung mit Landnutzungsdaten (ISU5) wurde das **wirtschaftlich relevante Potenzial** pro Bezirk ermittelt.
+* **High Potential:** Unversorgte Wohn- und Mischgebiete.
+* **Mid Potential:** Unversorgte Kleingärten, Sport- und Kulturflächen.
 
-**Top-3 Bezirke mit höchstem Ausbau-Potenzial (High Potential Gap):**
-1. **Treptow-Köpenick:** ~16.2 km² unversorgte Wohn-/Gewerbefläche
-2. **Pankow:** ~13.8 km² unversorgte Wohn-/Gewerbefläche
-3. **Spandau:** ~12.5 km² unversorgte Wohn-/Gewerbefläche
+| Bezirk | Versorgungsgrad (High) | 🔴 High Potential Gap (km²) | 🟡 Mid Potential Gap (km²) |
+| :--- | :---: | :---: | :---: |
+| **Treptow-Köpenick** | 58.9% | **16.22** | 7.84 |
+| **Pankow** | 59.1% | **13.76** | 10.11 |
+| **Spandau** | 61.3% | **12.49** | 6.28 |
+| **Marzahn-Hellersdorf** | 67.6% | **10.29** | 2.17 |
+| **Lichtenberg** | 56.4% | **9.86** | 5.52 |
+| **Mitte** | 53.1% | **8.97** | 1.51 |
+| **Tempelhof-Schöneberg** | 69.0% | **8.13** | 3.24 |
+| **Steglitz-Zehlendorf** | 82.4% | **7.08** | 3.76 |
+| **Reinickendorf** | 79.1% | **7.04** | 4.21 |
+| **Neukölln** | 76.2% | **5.43** | 5.13 |
+| **Charlottenburg-Wilm.** | 70.3% | **5.38** | 5.29 |
+| **Friedrichshain-Kreuzberg** | 53.4% | **5.06** | 0.52 |
+
+> **Fazit:** Während Innenstadtbezirke oft geometrisch gut versorgt wirken, zeigen Außenbezirke wie Treptow-Köpenick und Pankow den größten absoluten Nachholbedarf an relevanter Fläche.
 
 ## **⚠️ Disclaimer**
 
