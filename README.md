@@ -6,7 +6,7 @@ Eine spezialisierte **Spatial ETL-Pipeline** zur Analyse der Glasfaser-Versorgun
 
 | Modul | Beschreibung |
 | :---- | :---- |
-| **⚡ Smart Ingestion** | Paralleler Downloader ("Scatter-Gather" Pattern) für Telekom- (WMS) und Vodafone-Netzkarten (ArcGIS REST) mit Caching-Strategie. |
+| **⚡ Async Ingestion** | Hochperformanter Downloader via **AsyncIO & aiohttp**. Lädt >500 Kacheln in unter 40 Sekunden durch persistente Connections. |
 | **🗺️ Vectorization & Clipping** | Transformation von Raster in Vektor & dynamischer Download der Stadtgrenze (OSMnx) für exaktes Clipping (keine rechteckige BBox mehr). |
 | **🧹 Topology Cleaning** | Automatisierte Geometrie-Reparatur (Buffer-Dissolve-Unbuffer), um Artefakte zu entfernen und saubere Flächen für die Statistik zu gewährleisten. |
 | **🧠 Spatial Analytics** | Mengenlehre-Operationen (Intersection, Difference) zur Ermittlung von Monopolen, Wettbewerbszonen und unversorgten Gebieten. |
@@ -35,13 +35,14 @@ graph LR
 
 ### **Die Pipeline-Schritte**
 
-1. **Downloader (s01):** Erntet Kacheln basierend auf einer Bounding Box. Umgeht Server-Limits durch intelligentes Threading.  
+1. **Downloader (s01):** Erntet Kacheln asynchron (AsyncIO). Maximiert den Durchsatz durch Connection-Pooling, respektiert aber Server-Limits.
 2. **Processor (s02):** Extrahiert Farbbereiche (z.B. Magenta für Telekom) aus den Bildern und konvertiert sie in Geometrien. Nutzt pyogrio für performantes Schreiben von GeoPackages.  
 3. **Cleaning (s03):** Lädt die exakte Stadtgrenze via **OSMnx** und schneidet (Clips) die Daten passgenau zu. Bereinigt Artefakte und schließt Lücken durch Buffer-Operationen.
 4. **Analysis (s04):** Berechnet Marktanteile und White Spots innerhalb der realen Stadtgrenze. Reprojiziert auf **EPSG:25833** für präzise Flächenberechnung. 
-5. **Enrichment (s05):** Verbindet die Netzdaten mit der Flächennutzung.  
-   * *Fragestellung:* "Welche Gewerbegebiete haben kein Glasfaser?"  
-   * *Technik:* Spatial Join und Overlay-Analysen mit WFS-Live-Daten.  
+5. **Enrichment (s05):** Klassifiziert "White Spots" anhand der realen Nutzung (WFS 2021) in Vertriebs-Potenziale:
+   * **High Potential:** Wohnen, Gewerbe, Mischgebiete (Priorität 1).
+   * **Medium Potential:** Kleingärten, Sport, Kultur.
+   * **Low Potential:** Wald, Wasser, Verkehrsflächen (wird in der Karte ausgeblendet).
 6. **Visualization (s06):** Erstellt eine hochauflösende Strategie-Karte mittels matplotlib und contextily (Basemaps) sowie detaillierte Statistiken pro Bezirk.
 
 ## **📂 Projektstruktur**
@@ -104,16 +105,26 @@ Anpassungen an Untersuchungsgebiet (BBox), Provider-URLs oder Farbcodes können 
 * **berlin\_strategie\_karte.png**: Eine statische, druckfertige Karte der Versorgungssituation.  
 * **Terminal-Report**: Eine Zusammenfassung der Flächenanteile (km²) direkt nach Durchlauf.
 
-## **📊 Exemplarische Ergebnisse (Stand: 2026)**
+## **📊 Aktuelle Ergebnisse (Stand: 2026)**
 
-Das System liefert quantitative Aussagen zur digitalen Infrastruktur:
+### **1. Infrastruktur-Status (Gesamtfläche)**
+Basis-Analyse der Netzabdeckung in Berlin:
 
 | Status | Fläche (km²) | Beschreibung |
 | :---- | :---- | :---- |
-| **Wettbewerb** | 74.67 | Infrastruktur beider Provider vorhanden |
+| **Wettbewerb** | 74.62 | Infrastruktur beider Provider vorhanden |
 | **Monopol Telekom** | 33.71 | Exklusive Versorgung durch Telekom |
-| **Monopol Vodafone** | 246.19 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
-| **White Spot** | 531.58 | Keine gigabitfähige Infrastruktur erkannt |
+| **Monopol Vodafone** | 246.14 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
+| **Kein Netz (White Spot)** | 531.65 | Keine gigabitfähige Infrastruktur erkannt |
+
+### **2. Vertriebs-Potenzial (Smart Analysis)**
+Filterung der "White Spots" nach Relevanz (Wohnen/Gewerbe vs. Wald/Wasser). 
+**Ergebnis:** Von den 531 km² "White Spots" sind nur ca. 100-120 km² wirtschaftlich relevant.
+
+**Top-3 Bezirke mit höchstem Ausbau-Potenzial (High Potential Gap):**
+1. **Treptow-Köpenick:** ~16.2 km² unversorgte Wohn-/Gewerbefläche
+2. **Pankow:** ~13.8 km² unversorgte Wohn-/Gewerbefläche
+3. **Spandau:** ~12.5 km² unversorgte Wohn-/Gewerbefläche
 
 ## **⚠️ Disclaimer**
 
