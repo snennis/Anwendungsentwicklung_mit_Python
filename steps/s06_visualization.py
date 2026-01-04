@@ -6,28 +6,12 @@ import matplotlib.patheffects as pe
 import contextily as cx
 import logging
 from datetime import datetime
-from config import get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG, VISUALIZATION_COLORS
+from config import get_log_path, VISUALIZATION_INPUT_GPKG, VISUALIZATION_MAP_PNG, VISUALIZATION_COLORS, DISTRICT_MAPPING
 
 INPUT_GPKG = VISUALIZATION_INPUT_GPKG
 OUTPUT_MAP_PNG = VISUALIZATION_MAP_PNG
 LOG_FILE = None # removed custom log assignment
 COLORS = VISUALIZATION_COLORS
-
-# Mapping: ARS-Schlüssel -> Name
-DISTRICT_MAPPING = {
-    '11000001': 'Mitte',
-    '11000002': 'Friedrichshain-Kr.',
-    '11000003': 'Pankow',
-    '11000004': 'Charlottenburg-Wilm.',
-    '11000005': 'Spandau',
-    '11000006': 'Steglitz-Zehl.',
-    '11000007': 'Tempelhof-Schön.',
-    '11000008': 'Neukölln',
-    '11000009': 'Treptow-Köpenick',
-    '11000010': 'Marzahn-Hellersdorf',
-    '11000011': 'Lichtenberg',
-    '11000012': 'Reinickendorf'
-}
 
 # setup_logging removed
 
@@ -41,7 +25,7 @@ def add_north_arrow(ax):
 
 def main():
     # setup_logging() handled by main.py
-    logging.info("🚀 STARTE VISUALISIERUNG (Final Fix)")
+    logging.info("🚀 STARTE VISUALISIERUNG (Light Theme)")
 
     if not os.path.exists(INPUT_GPKG):
         logging.error(f"Input fehlt: {INPUT_GPKG}")
@@ -100,14 +84,14 @@ def main():
     ax.set_xlim(minx, maxx)
     ax.set_ylim(miny, maxy)
 
-    # 1. BASEMAP (Hintergrundkarte)
+    # 1. BASEMAP (Hintergrundkarte - LIGHT)
     logging.info("   Lade Basemap (CartoDB Positron)...")
     try:
         # Source explizit angeben. crs=... ist wichtig!
         cx.add_basemap(
             ax, 
             crs=gdf_bezirke.crs.to_string(), 
-            source=cx.providers.CartoDB.PositronNoLabels, # NoLabels, damit wir unsere eigenen Namen nutzen können
+            source=cx.providers.CartoDB.PositronNoLabels, # <--- WIEDER HELL
             zoom=11
         )
     except Exception as e:
@@ -122,21 +106,21 @@ def main():
         ax=ax, 
         color=gdf_blocks['color'], 
         edgecolor='none', 
-        alpha=0.65,  # Transparent, damit Straßen sichtbar bleiben
+        alpha=0.75,  # Transparent, damit Straßen sichtbar bleiben
         zorder=2
     )
 
-    # 3. BEZIRKSRAHMEN
+    # 3. BEZIRKSRAHMEN (Dunkelgrau für Kontrast auf Hell)
     gdf_bezirke.plot(
         ax=ax,
         facecolor="none",
-        edgecolor="#444444", 
-        linewidth=1.5,
+        edgecolor="#444444", # <--- DUNKELGRAU
+        linewidth=1.2,
         zorder=3,
         alpha=0.8
     )
 
-    # 4. LABELS (Namen)
+    # 4. LABELS (Namen - Schwarz mit weißem Rand)
     logging.info("   Plaziere Labels...")
     for idx, row in gdf_bezirke.iterrows():
         # Representative Point garantiert Position IM Polygon
@@ -147,7 +131,7 @@ def main():
             ha='center', va='center', 
             fontsize=12, 
             fontweight='bold',
-            color='#222222', 
+            color='#222222', # <--- SCHWARZ
             zorder=4
         )
         # Weißer Rand (Halo) für Lesbarkeit
