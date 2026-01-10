@@ -6,9 +6,16 @@ import logging
 import time
 from typing import Dict, Any, List
 from tqdm.asyncio import tqdm
-from config import BASE_DIR, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, dataclass
+from dataclasses import dataclass
+from config import BASE_DIR, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS
+import ssl
+import urllib.request
 
 # --- KONFIGURATION ---
+# SSL Context mit deaktivierter Verifikation
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
 # Wie viele Anfragen gleichzeitig?
 # Zu hoch = Ban Gefahr! 50 ist aggressiv, aber meist okay.
 MAX_CONCURRENT_REQUESTS = 50
@@ -172,7 +179,7 @@ async def run_async_download():
 
     # TCPConnector optimiert connection pooling
     # limit=0 bedeutet keine harte Grenze im Connector, wir regeln das über Semaphore
-    connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+    connector = aiohttp.TCPConnector(ssl=ssl_context,limit=0, ttl_dns_cache=300)
 
     timeout = aiohttp.ClientTimeout(total=60) # Generelles Timeout
 
