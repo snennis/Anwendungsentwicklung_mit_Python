@@ -7,6 +7,8 @@ from shapely.geometry import box
 from shapely.ops import unary_union
 from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
+import ssl
+import urllib.request
 from config import BASE_DIR, CRS, ANALYSIS_INPUT_FILES, ANALYSIS_OUTPUT_GPKG, WFS_URLS
 
 # Warnungen unterdrücken
@@ -30,6 +32,16 @@ def load_layer_safe(key: str) -> gpd.GeoDataFrame:
 def load_districts_for_splitting():
     logging.info("Lade Bezirksgrenzen für Partitionierung...")
     try:
+
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        # HTTPS Handler mit SSL-Context
+        https_handler = urllib.request.HTTPSHandler(context=ssl_context)
+        opener = urllib.request.build_opener(https_handler)
+        urllib.request.install_opener(opener)
+
         gdf = gpd.read_file(WFS_URLS["BEZIRKE"])
         if gdf.crs != CRS:
             gdf = gdf.to_crs(CRS)
