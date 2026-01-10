@@ -16,57 +16,16 @@ warnings.filterwarnings("ignore")
 
 INPUT_GPKG = ENRICHMENT_INPUT_GPKG
 OUTPUT_GPKG = ENRICHMENT_OUTPUT_GPKG
+LOG_FILE = get_log_path("05_enrichment.log")
 
-# --- KONFIGURATION: Exaktes Mapping für Spalte 'nutzung' ---
-LANDUSE_PRIORITY = {
-    # HIGH POTENTIAL (Wohnen, Arbeit, Versorgung)
-    "Wohnnutzung": "High",
-    "Mischnutzung": "High",
-    "Kerngebietsnutzung": "High",
-    "Gewerbe- und Industrienutzung, großflächiger Einzelhandel": "High",
-    "Gemeinbedarfs- und Sondernutzung": "High",
-    "Bebauung mit überwiegender Nutzung durch Handel und Dienstleistung": "High",
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s | %(levelname)-8s | %(message)s',
+        handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
+    )
 
-    # MEDIUM POTENTIAL (Freizeit mit Gebäuden, Baustellen)
-    "Wochenendhaus- und kleingartenähnliche Nutzung": "Medium",
-    "Kleingartenanlage": "Medium",
-    "Sportnutzung": "Medium",
-    "Baustelle": "Medium",
-    "Baumschule / Gartenbau": "Medium",
-    "Ver- und Entsorgung": "Medium",
-    "Sicherheit und Ordnung": "Medium",
-    "Verwaltung": "Medium",
-    "Kultur": "Medium",
-    "Krankenhaus": "Medium",
-    "Kindertagesstätte": "Medium",
-
-    # LOW POTENTIAL (Natur, Infrastruktur ohne Gebäude)
-    "Wald": "Low",
-    "Grünland": "Low",
-    "Ackerland": "Low",
-    "Park / Grünfläche": "Low",
-    "Friedhof": "Low",
-    "Gewässer": "Low",
-    "Brachfläche, Mischbestand aus Wiesen, Gebüschen und Bäumen": "Low",
-    "Brachfläche, vegetationsfrei": "Low",
-    "Brachfläche, wiesenartiger Vegetationsbestand": "Low",
-    "Stadtplatz / Promenade": "Low",
-    "Verkehrsfläche (ohne Straßen)": "Low",
-    "sonstige Verkehrsfläche": "Low",
-    "Parkplatz": "Low"
-}
-
-def load_layer_safe(path, layer=None) -> Optional[gpd.GeoDataFrame]:
-    """
-    loads a geospatial layer safely, returns empty geodataframe on error
-
-    Args:
-        path (str): file path
-        layer (str, optional): layer name for multi-layer files. Defaults to None.
-
-    Returns:
-        gpd.GeoDataFrame: loaded geodataframe or empty on error
-    """
+def load_layer_safe(path, layer=None):
     if not os.path.exists(path):
         return gpd.GeoDataFrame()
     try:

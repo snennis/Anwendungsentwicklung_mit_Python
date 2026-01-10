@@ -67,26 +67,16 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
         pass
     return features
 
-def process_layer_stream(config: ProcessConfig) -> None:
-    """
-    processes a layer based on given config
-
-    Args:
-        config (ProcessConfig): processing config
-
-    Returns:
-        None
-    """
-    tile_dir = os.path.join(HAUPTORDNER, config.subdir)
+def process_layer_stream(config: ProcessConfig):
+    tile_dir = config.subdir # Full path
     files = glob.glob(os.path.join(tile_dir, "*.png"))
-    # Nehme nur Dateien die sowohl .png als auch .pgw Datei haben
     valid_files = [f for f in files if os.path.exists(f.replace(".png", ".pgw"))]
     
     print(f"⚙️ Verarbeite {config.name} ({len(valid_files)} Kacheln)...")
     
     for rule in config.rules:
         all_features = []
-        
+
         # Wir nutzen alle Kerne für maximale Geschwindigkeit
         max_workers = DOWNLOAD_MAX_WORKERS
         

@@ -3,7 +3,6 @@ pycache/
 *$py.class
 old/
 *.log
-*.png
 *.pgw
 *.jpg
 *.jpeg

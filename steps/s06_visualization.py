@@ -172,5 +172,7 @@ def main():
     logging.info(f"✅ Fertig: {OUTPUT_MAP_PNG}")
     plt.close()
 
+    logging.info("✅ Visualisierung abgeschlossen.")
+
 if __name__ == "__main__":
     main()

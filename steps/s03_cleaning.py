@@ -112,7 +112,7 @@ def clean_geometry_layer(config, boundary_shape):
 
     except Exception as e:
         logging.error(f"Fehler bei {config['name']}: {e}")
-        print(f"   ❌ Fehler: {e}")
+        return None, None
 
 def main():
     """
