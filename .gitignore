@@ -16,3 +16,4 @@ TEMP_*.tif
 **/cache/
 **/fiber_data/
 **/old/
+.DS_Store
