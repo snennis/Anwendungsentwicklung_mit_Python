@@ -9,7 +9,7 @@ from tqdm.asyncio import tqdm
 from dataclasses import dataclass
 from config import BASE_DIR, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS
 import ssl
-import urllib.request
+from datetime import datetime, timedelta
 
 # --- KONFIGURATION ---
 # SSL Context mit deaktivierter Verifikation
@@ -30,6 +30,77 @@ class DownloadTask:
     filepath: str
     pgw_content: str
     tile_id: str
+
+def get_cache_metadata_file(layer_subdir: str) -> str:
+    """
+    Gibt den Pfad zur Cache-Metadatei zurück (JSON mit Download-Datum)
+    """
+    return os.path.join(layer_subdir, ".cache_metadata.txt")
+
+async def is_cache_valid(layer: LayerConfig, session: aiohttp.ClientSession, cache_age_days: int = 7) -> bool:
+    """
+    Prüft ob die gecachten Daten noch gültig sind:
+    1. Existieren die Dateien?
+    2. Sind sie jünger als cache_age_days?
+
+    Args:
+        layer: Layer-Konfiguration
+        session: aiohttp Session
+        cache_age_days: Maximales Alter der Datei in Tagen (default: 7 Tage)
+
+    Returns:
+        bool: True wenn Cache valid, False wenn neu downloaden notwendig
+    """
+    logger = logging.getLogger("DOWNLOADER")
+    metadata_file = get_cache_metadata_file(layer.subdir)
+
+    # 1. Prüfe ob Verzeichnis und Dateien existieren
+    if not os.path.exists(layer.subdir):
+        logger.info(f"📂 Kein Cache für {layer.name} (Verzeichnis existiert nicht)")
+        return False
+
+    # Zähle PNG-Dateien
+    png_count = len([f for f in os.listdir(layer.subdir) if f.endswith('.png')])
+    if png_count == 0:
+        logger.info(f"📂 Kein Cache für {layer.name} (Keine Dateien gefunden)")
+        return False
+
+    # 2. Hole das Änderungsdatum der ersten PNG-Datei
+    try:
+        png_files = [f for f in os.listdir(layer.subdir) if f.endswith('.png')]
+        if not png_files:
+            return False
+
+        first_png = os.path.join(layer.subdir, png_files[0])
+        mtime = os.path.getmtime(first_png)
+        cache_date = datetime.fromtimestamp(mtime)
+
+        # 3. Prüfe ob Cache älter als cache_age_days ist
+        age = datetime.now() - cache_date
+        max_age = timedelta(days=cache_age_days)
+
+        if age <= max_age:
+            logger.info(f"✅ Cache gültig für {layer.name} ({age.days} Tage alt, max. {cache_age_days} Tage)")
+            # Speichere auch die Metadatei für spätere Referenz
+            with open(metadata_file, 'w') as f:
+                f.write(cache_date.isoformat())
+            return True
+        else:
+            logger.info(f"❌ Cache zu alt für {layer.name} ({age.days} Tage alt, max. {cache_age_days} Tage)")
+            return False
+
+    except Exception as e:
+        logger.warning(f"⚠️  Konnte Cache-Alter nicht ermitteln für {layer.name}: {e}")
+        return False
+
+
+def save_cache_metadata(layer: LayerConfig):
+    """
+    Speichert das aktuelle Datum als Cache-Metadaten
+    """
+    metadata_file = get_cache_metadata_file(layer.subdir)
+    with open(metadata_file, 'w') as f:
+        f.write(datetime.now().isoformat())
 
 def erstelle_pgw_inhalt(xmin: float, ymin: float, xmax: float, ymax: float, w_px: int, h_px: int) -> str:
     """
@@ -165,32 +236,58 @@ async def run_async_download():
     if not logging.getLogger().handlers:
         logging.basicConfig(level=logging.INFO)
 
+    logger = logging.getLogger("DOWNLOADER")
+
     print(f"🚀 Starte Async-Downloader (High Performance)")
     print(f"   -> Konkurrenz: {MAX_CONCURRENT_REQUESTS} parallele Anfragen")
 
-    all_tasks = []
-    for layer in DOWNLOAD_LAYERS:
-        t = prepare_tasks(layer, ANALYSE_BBOX)
-        all_tasks.extend(t)
-        print(f"   -> {layer.name}: {len(t)} Kacheln vorbereitet.")
-
-    # Semaphore begrenzt die maximale Anzahl gleichzeitiger Verbindungen
-    sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
-
     # TCPConnector optimiert connection pooling
     # limit=0 bedeutet keine harte Grenze im Connector, wir regeln das über Semaphore
-    connector = aiohttp.TCPConnector(ssl=ssl_context,limit=0, ttl_dns_cache=300)
-
-    timeout = aiohttp.ClientTimeout(total=60) # Generelles Timeout
+    connector = aiohttp.TCPConnector(ssl=ssl_context, limit=0, ttl_dns_cache=300)
+    timeout = aiohttp.ClientTimeout(total=60)  # Generelles Timeout
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+
+        # CACHE-CHECK PHASE
+        print(f"\n🔍 Prüfe Cache...")
+        layers_to_download = []
+
+        for layer in DOWNLOAD_LAYERS:
+            cache_valid = await is_cache_valid(layer, session)
+            if cache_valid:
+                print(f"   ✅ {layer.name}: Cache gültig, überspringe Download")
+            else:
+                print(f"   ❌ {layer.name}: Cache ungültig oder nicht vorhanden, wird neu heruntergeladen")
+                layers_to_download.append(layer)
+
+        if not layers_to_download:
+            print(f"\n✅ Alle Daten sind gecacht und gültig! Kein Download notwendig.")
+            return
+
+        print(f"\n⬇️  Starte Download für {len(layers_to_download)}/{len(DOWNLOAD_LAYERS)} Layer...\n")
+
+        # DOWNLOAD PHASE
+        all_tasks = []
+        for layer in layers_to_download:
+            t = prepare_tasks(layer, ANALYSE_BBOX)
+            all_tasks.extend(t)
+            print(f"   -> {layer.name}: {len(t)} Kacheln vorbereitet.")
+
+        # Semaphore begrenzt die maximale Anzahl gleichzeitiger Verbindungen
+        sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
+
         tasks = [download_worker(session, task, sem) for task in all_tasks]
 
         # tqdm.gather zeigt den Fortschrittsbalken asynchron an
         results = await tqdm.gather(*tasks, unit="img", colour="green", desc="Downloading")
 
-    success_count = sum(results)
-    print(f"✅ Download abgeschlossen: {success_count}/{len(all_tasks)} erfolgreich.")
+        success_count = sum(results)
+        print(f"✅ Download abgeschlossen: {success_count}/{len(all_tasks)} erfolgreich.")
+
+        # Speichere Cache-Metadaten für heruntergeladene Layer
+        for layer in layers_to_download:
+            save_cache_metadata(layer)
+            logger.info(f"💾 Cache-Metadaten gespeichert für {layer.name}")
 
 def main():
     if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
