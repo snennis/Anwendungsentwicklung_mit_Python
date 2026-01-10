@@ -56,7 +56,7 @@ def run_step(step_pretty_name, module_name, input_data=None):
         
         if hasattr(module, 'main'):
             try:
-                # Intelligente Parameter-Prüfung
+                # Intelligent e Parameter-Prüfung
                 # Wir schauen, ob die main() Funktion Argumente akzeptiert
                 sig = inspect.signature(module.main)
                 params = sig.parameters
