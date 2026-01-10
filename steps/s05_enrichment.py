@@ -8,10 +8,50 @@ import logging
 import warnings
 import traceback
 from tqdm import tqdm
+import ssl
+import urllib.request
 from concurrent.futures import ProcessPoolExecutor
-from config import BASE_DIR, CRS, ENRICHMENT_INPUT_GPKG, ENRICHMENT_OUTPUT_GPKG, WFS_URLS, DISTRICT_MAPPING
+from config import BASE_DIR, CRS, ENRICHMENT_INPUT_GPKG, ENRICHMENT_OUTPUT_GPKG, WFS_URLS, DISTRICT_MAPPING, get_log_path
 
-# Warnungen unterdrücken
+# Landnutzungs-Prioritäten
+LANDUSE_PRIORITY = {
+    # HIGH POTENTIAL (Wohnen, Arbeit, Versorgung)
+    "Wohnnutzung": "High",
+    "Mischnutzung": "High",
+    "Kerngebietsnutzung": "High",
+    "Gewerbe- und Industrienutzung, großflächiger Einzelhandel": "High",
+    "Gemeinbedarfs- und Sondernutzung": "High",
+    "Bebauung mit überwiegender Nutzung durch Handel und Dienstleistung": "High",
+
+    # MEDIUM POTENTIAL (Freizeit mit Gebäuden, Baustellen)
+    "Wochenendhaus- und kleingartenähnliche Nutzung": "Medium",
+    "Kleingartenanlage": "Medium",
+    "Sportnutzung": "Medium",
+    "Baustelle": "Medium",
+    "Baumschule / Gartenbau": "Medium",
+    "Ver- und Entsorgung": "Medium",
+    "Sicherheit und Ordnung": "Medium",
+    "Verwaltung": "Medium",
+    "Kultur": "Medium",
+    "Krankenhaus": "Medium",
+    "Kindertagesstätte": "Medium",
+
+    # LOW POTENTIAL (Natur, Infrastruktur ohne Gebäude)
+    "Wald": "Low",
+    "Grünland": "Low",
+    "Ackerland": "Low",
+    "Park / Grünfläche": "Low",
+    "Friedhof": "Low",
+    "Gewässer": "Low",
+    "Brachfläche, Mischbestand aus Wiesen, Gebüschen und Bäumen": "Low",
+    "Brachfläche, vegetationsfrei": "Low",
+    "Brachfläche, wiesenartiger Vegetationsbestand": "Low",
+    "Stadtplatz / Promenade": "Low",
+    "Verkehrsfläche (ohne Straßen)": "Low",
+    "sonstige Verkehrsfläche": "Low",
+    "Parkplatz": "Low"}
+
+    # Warnungen unterdrücken
 warnings.filterwarnings("ignore")
 
 INPUT_GPKG = ENRICHMENT_INPUT_GPKG
@@ -50,6 +90,16 @@ def get_wfs_data(url, name) -> Optional[gpd.GeoDataFrame]:
     """
     logging.info(f"Lade {name} von GDI Berlin...")
     try:
+
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+
+        # Erstelle einen HTTPS Handler mit dem SSL-Context
+        https_handler = urllib.request.HTTPSHandler(context=ssl_context)
+        opener = urllib.request.build_opener(https_handler)
+        urllib.request.install_opener(opener)
+
         gdf = gpd.read_file(url)
         if gdf.crs != CRS:
             gdf = gdf.to_crs(CRS)
