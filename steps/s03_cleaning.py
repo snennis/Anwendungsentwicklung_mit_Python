@@ -98,7 +98,7 @@ def clean_geometry_layer(config, boundary_shape):
         out_gdf = out_gdf.explode(index_parts=False).reset_index(drop=True)
 
         # 7. SPEICHERN (Backup auf Disk)
-        out_gdf.to_file(out_path, driver="GPKG", engine="pyogrio")
+        # out_gdf.to_file(out_path, driver="GPKG", engine="pyogrio")
         logging.info(f"✅ Fertig: {config['name']} ({len(out_gdf)} Polygone)")
 
         # 8. RETURN FÜR RAM (Übergabe an s04)
