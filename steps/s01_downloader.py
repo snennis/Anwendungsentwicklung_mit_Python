@@ -1,14 +1,17 @@
 import os
-import requests
+import asyncio
+import aiohttp
+import aiofiles
 import logging
+import time
 from typing import Dict, Any, List
-from concurrent.futures import ThreadPoolExecutor
-from tqdm import tqdm
-from dataclasses import dataclass
-from config import BASE_DIR, get_log_path, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, DOWNLOAD_MAX_WORKERS
+from tqdm.asyncio import tqdm
+from config import BASE_DIR, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS, dataclass
 
-# Log file name (derived from config logic)
-LOG_FILE = get_log_path("download.log")
+# --- KONFIGURATION ---
+# Wie viele Anfragen gleichzeitig?
+# Zu hoch = Ban Gefahr! 50 ist aggressiv, aber meist okay.
+MAX_CONCURRENT_REQUESTS = 50
 
 @dataclass
 class DownloadTask:
@@ -42,45 +45,60 @@ def erstelle_pgw_inhalt(xmin: float, ymin: float, xmax: float, ymax: float, w_px
     F = ymax + (E / 2.0)
     return f"{A:.10f}\n0.0\n0.0\n{E:.10f}\n{C:.10f}\n{F:.10f}\n"
 
-def get_session() -> requests.Session:
+async def download_worker(session: aiohttp.ClientSession, task: DownloadTask, semaphore: asyncio.Semaphore) -> bool:
     """
-    creates a requests session with retry logic
-
-    Args:
-        none
-
-    Returns:
-        requests.Session: session object
+    Asynchroner Worker. Nutzt Semaphore um die Anzahl gleichzeitiger Requests zu begrenzen.
     """
-    s = requests.Session()
-    adapter = requests.adapters.HTTPAdapter(max_retries=3)
-    s.mount('https://', adapter)
-    return s
+    logger = logging.getLogger("DOWNLOADER")
 
-def download_worker(task: DownloadTask) -> bool:
-    """
-    downloads a single tile based on the DownloadTask
+    # Semaphore blockiert, wenn zu viele Anfragen gleichzeitig laufen
+    async with semaphore:
+        try:
+            async with session.get(task.url, params=task.params, timeout=30) as response:
 
-    Args:
-        task DownloadTask: task object with url, params, filepath, pgw_content, tile
+                # 1. Status Check
+                if response.status != 200:
+                    if response.status == 404:
+                        logger.debug(f"Kachel nicht gefunden (404): {task.tile_id}")
+                    elif response.status == 429:
+                        logger.critical(f"🛑 RATE LIMIT (429) bei {task.tile_id}! Wir sind zu schnell.")
+                    else:
+                        logger.error(f"❌ HTTP {response.status} bei {task.tile_id}")
+                    return False
 
-    Returns:
-        bool: true if download was successful, false otherwise
-    """
-    if os.path.exists(task.filepath):
-        return True 
-    try:
-        with get_session().get(task.url, params=task.params, stream=True, timeout=30) as r:
-            if r.status_code == 200:
-                content = r.content
-                if len(content) > 500:
-                    with open(task.filepath, 'wb') as f: f.write(content)
-                    with open(task.filepath.replace(".png", ".pgw"), 'w') as f: f.write(task.pgw_content)
+                # 2. Content lesen
+                content = await response.read()
+
+                # 3. Plausibilitäts-Check (Leere Bilder ignorieren)
+                if len(content) < 500:
+                    logger.warning(f"⚠️ Datei zu klein (<500b), ignoriere: {task.tile_id}")
+                    return False
+
+                # 4. Asynchrones Schreiben (Non-blocking I/O)
+                try:
+                    async with aiofiles.open(task.filepath, 'wb') as f:
+                        await f.write(content)
+
+                    # PGW Datei (ist winzig, kann auch blockierend geschrieben werden, aber sauberer so)
+                    pgw_path = task.filepath.replace(".png", ".pgw")
+                    async with aiofiles.open(pgw_path, 'w') as f:
+                        await f.write(task.pgw_content)
+
                     return True
-    except Exception as e:
-        logging.warning(f"Fehler beim Download der Kachel {task.tile_id}")
-        pass
-    return False
+
+                except OSError as e:
+                    logger.error(f"💾 Schreibfehler {task.filepath}: {e}")
+                    return False
+
+        except asyncio.TimeoutError:
+            logger.warning(f"⏳ Timeout bei {task.tile_id}")
+            return False
+        except aiohttp.ClientError as e:
+            logger.error(f"🔌 Netzwerkfehler bei {task.tile_id}: {e}")
+            return False
+        except Exception as e:
+            logger.critical(f"🔥 Crash bei {task.tile_id}: {e}")
+            return False
 
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     """
@@ -94,7 +112,7 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
         List[DownloadTask]: list of download tasks
     """
     tasks = []
-    save_dir = layer.subdir # Is now full path
+    save_dir = layer.subdir
     if not os.path.exists(save_dir): os.makedirs(save_dir)
     
     y = bbox["Y_START"]
@@ -124,32 +142,62 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
                     'dpi': layer.dpi, 'format': 'png32', 'transparent': 'true',
                     'bboxSR': layer.bboxSR, 'imageSR': layer.imageSR, 'layers': layer.layers_param, 'f': 'image'
                 }
-            tasks.append(DownloadTask(url=layer.base_url, params=params, filepath=fpath, pgw_content=pgw, tile_id=f"{row_idx}_{col_idx}"))
+
+            # Tile ID für Logs
+            t_id = f"{layer.name}_{row_idx}_{col_idx}"
+            tasks.append(DownloadTask(url=layer.base_url, params=params, filepath=fpath, pgw_content=pgw, tile_id=t_id))
+
             x = current_x_max
             col_idx += 1
         y = current_y_min
         row_idx += 1
     return tasks
 
-def main():
-    """
-    main function to execute the download phase
-    """
-    if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
-    logging.basicConfig(level=logging.INFO, handlers=[logging.FileHandler(LOG_FILE, mode='w')])
-    
-    logging.info("🚀 Starte Download-Phase...")
+async def run_async_download():
+    # Logging Setup für Standalone-Test
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO)
+
+    print(f"🚀 Starte Async-Downloader (High Performance)")
+    print(f"   -> Konkurrenz: {MAX_CONCURRENT_REQUESTS} parallele Anfragen")
 
     all_tasks = []
     for layer in DOWNLOAD_LAYERS:
-        tasks = prepare_tasks(layer, ANALYSE_BBOX)
-        all_tasks.extend(tasks)
-        logging.info(f"  -> {layer.name}: {len(tasks)} Kacheln.")
+        t = prepare_tasks(layer, ANALYSE_BBOX)
+        all_tasks.extend(t)
+        print(f"   -> {layer.name}: {len(t)} Kacheln vorbereitet.")
 
-    with ThreadPoolExecutor(max_workers=DOWNLOAD_MAX_WORKERS) as executor:
-        list(tqdm(executor.map(download_worker, all_tasks), total=len(all_tasks), unit="img", colour="green"))
+    # Semaphore begrenzt die maximale Anzahl gleichzeitiger Verbindungen
+    sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-    logging.info("✅ Download abgeschlossen.")
+    # TCPConnector optimiert connection pooling
+    # limit=0 bedeutet keine harte Grenze im Connector, wir regeln das über Semaphore
+    connector = aiohttp.TCPConnector(limit=0, ttl_dns_cache=300)
+
+    timeout = aiohttp.ClientTimeout(total=60) # Generelles Timeout
+
+    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+        tasks = [download_worker(session, task, sem) for task in all_tasks]
+
+        # tqdm.gather zeigt den Fortschrittsbalken asynchron an
+        results = await tqdm.gather(*tasks, unit="img", colour="green", desc="Downloading")
+
+    success_count = sum(results)
+    print(f"✅ Download abgeschlossen: {success_count}/{len(all_tasks)} erfolgreich.")
+
+def main():
+    if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
+
+    start = time.time()
+
+    # Windows Selector Event Loop Policy Fix (wichtig für Python 3.8+ auf Windows)
+    if os.name == 'nt':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    asyncio.run(run_async_download())
+
+    duration = time.time() - start
+    print(f"⏱️  Dauer: {duration:.2f} Sekunden")
 
 if __name__ == "__main__":
     main()

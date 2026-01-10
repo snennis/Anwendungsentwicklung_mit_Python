@@ -6,8 +6,8 @@ Eine spezialisierte **Spatial ETL-Pipeline** zur Analyse der Glasfaser-Versorgun
 
 | Modul | Beschreibung |
 | :---- | :---- |
-| **⚡ Smart Ingestion** | Paralleler Downloader ("Scatter-Gather" Pattern) für Telekom- (WMS) und Vodafone-Netzkarten (ArcGIS REST) mit Caching-Strategie. |
-| **🗺️ Vectorization Engine** | Effiziente Transformation von Raster-Kacheln in Vektor-Polygone (rasterio & shapely) unter Nutzung von Multiprocessing. |
+| **⚡ Async Ingestion** | Hochperformanter Downloader via **AsyncIO & aiohttp**. Lädt >500 Kacheln in unter 40 Sekunden durch persistente Connections. |
+| **🗺️ Vectorization & Clipping** | Transformation von Raster in Vektor & dynamischer Download der Stadtgrenze (OSMnx) für exaktes Clipping (keine rechteckige BBox mehr). |
 | **🧹 Topology Cleaning** | Automatisierte Geometrie-Reparatur (Buffer-Dissolve-Unbuffer), um Artefakte zu entfernen und saubere Flächen für die Statistik zu gewährleisten. |
 | **🧠 Spatial Analytics** | Mengenlehre-Operationen (Intersection, Difference) zur Ermittlung von Monopolen, Wettbewerbszonen und unversorgten Gebieten. |
 | **🏙️ Context Enrichment** | Anreicherung der Daten durch WFS-Dienste (ALKIS Bezirke, Flächennutzung ISU5), um Lücken in Wohn- und Gewerbegebieten zu unterscheiden. |
@@ -16,29 +16,33 @@ Eine spezialisierte **Spatial ETL-Pipeline** zur Analyse der Glasfaser-Versorgun
 
 Das Projekt implementiert eine modulare Pipeline-Architektur mit strikter Trennung der Verantwortlichkeiten (SoC):
 
-graph LR  
-    A\[01 Ingestion\] \--\>|Raw Tiles| B\[02 Processing\]  
-    B \--\>|Raw Vectors| C\[03 Cleaning\]  
-    C \--\>|Clean Vectors| D\[04 Analysis\]  
-    D \--\>|Stats| E\[05 Enrichment\]  
-    E \--\>|Context| F\[06 Visualization\]  
-    F \--\>|PNG/GPKG| G\[Output\]  
-    style A fill:\#e1f5fe,stroke:\#01579b,stroke-width:2px  
-    style B fill:\#e1f5fe,stroke:\#01579b,stroke-width:2px  
-    style C fill:\#e8f5e9,stroke:\#2e7d32,stroke-width:2px  
-    style D fill:\#e8f5e9,stroke:\#2e7d32,stroke-width:2px  
-    style E fill:\#fff3e0,stroke:\#ef6c00,stroke-width:2px  
-    style F fill:\#fff3e0,stroke:\#ef6c00,stroke-width:2px
+```mermaid
+graph LR
+    A[01 Downloader] -->|Raw Tiles| B[02 Processor]
+    B -->|Raw Vectors| C[03 Cleaner]
+    C -->|Clean Vectors| D[04 Analyzer]
+    D -->|Base Analysis| E[05 Enrichment]
+    E -->|Insights| F[06 Visualization]
+    F -->|Maps| G[GeoPackage / PNG / HTML]
+    style A fill:#f9f,stroke:#333,stroke-width:2px
+    style B fill:#bbf,stroke:#333,stroke-width:2px
+    style C fill:#bfb,stroke:#333,stroke-width:2px
+    style D fill:#fbf,stroke:#333,stroke-width:2px
+    style E fill:#fc9,stroke:#333,stroke-width:2px
+    style F fill:#ff9,stroke:#333,stroke-width:2px
+    style G fill:#ff9,stroke:#333,stroke-width:2px
+```
 
 ### **Die Pipeline-Schritte**
 
-1. **Downloader (s01):** Erntet Kacheln basierend auf einer Bounding Box. Umgeht Server-Limits durch intelligentes Threading.  
+1. **Downloader (s01):** Erntet Kacheln asynchron (AsyncIO). Maximiert den Durchsatz durch Connection-Pooling, respektiert aber Server-Limits.
 2. **Processor (s02):** Extrahiert Farbbereiche (z.B. Magenta für Telekom) aus den Bildern und konvertiert sie in Geometrien. Nutzt pyogrio für performantes Schreiben von GeoPackages.  
-3. **Cleaning (s03):** Bereinigt die Roh-Vektoren. Schließt Lücken zwischen Kacheln und entfernt Rauschen durch morphologische Operationen.  
-4. **Analysis (s04):** Berechnet die Marktanteile. Reprojiziert alles nach **EPSG:25833 (UTM 33N)** für exakte Flächenberechnungen.  
-5. **Enrichment (s05):** Verbindet die Netzdaten mit der Flächennutzung.  
-   * *Fragestellung:* "Welche Gewerbegebiete haben kein Glasfaser?"  
-   * *Technik:* Spatial Join und Overlay-Analysen mit WFS-Live-Daten.  
+3. **Cleaning (s03):** Lädt die exakte Stadtgrenze via **OSMnx** und schneidet (Clips) die Daten passgenau zu. Bereinigt Artefakte und schließt Lücken durch Buffer-Operationen.
+4. **Analysis (s04):** Berechnet Marktanteile und White Spots innerhalb der realen Stadtgrenze. Reprojiziert auf **EPSG:25833** für präzise Flächenberechnung. 
+5. **Enrichment (s05):** Klassifiziert "White Spots" anhand der realen Nutzung (WFS 2021) in Vertriebs-Potenziale:
+   * **High Potential:** Wohnen, Gewerbe, Mischgebiete (Priorität 1).
+   * **Medium Potential:** Kleingärten, Sport, Kultur.
+   * **Low Potential:** Wald, Wasser, Verkehrsflächen (wird in der Karte ausgeblendet).
 6. **Visualization (s06):** Erstellt eine hochauflösende Strategie-Karte mittels matplotlib und contextily (Basemaps) sowie detaillierte Statistiken pro Bezirk.
 
 ## **📂 Projektstruktur**
@@ -67,14 +71,22 @@ fiber\_data/
 
 ### **Installation**
 
-1. **Repository klonen**  
+1. **Repository klonen**
+   ```bash
    git clone https://github.com/snennis/Anwendungsentwicklung_mit_Python.git  
    cd Anwendungsentwicklung\_mit\_Python
+   ```
 
-2. **Environment aufsetzen** Es wird empfohlen, conda zu nutzen, um Konflikte mit C-Bibliotheken (GDAL) zu vermeiden:  
-   conda create \-n fiber\_intelligence python=3.10  
-   conda activate fiber\_intelligence  
-   pip install \-r requirements.txt  
+2. **Environment aufsetzen**
+   ```bash
+   python -m venv venv
+   # Windows
+   .\venv\Scripts\activate
+   # Linux / Mac
+   source venv/bin/activate
+   
+   pip install -r requirements.txt
+   ```
    **Hinweis:** Das Projekt nutzt pyogrio als Engine für GeoPandas, um Schreibvorgänge drastisch zu beschleunigen. Stellen Sie sicher, dass dies korrekt installiert ist.
 
 ## **💻 Nutzung**
@@ -93,16 +105,46 @@ Anpassungen an Untersuchungsgebiet (BBox), Provider-URLs oder Farbcodes können 
 * **berlin\_strategie\_karte.png**: Eine statische, druckfertige Karte der Versorgungssituation.  
 * **Terminal-Report**: Eine Zusammenfassung der Flächenanteile (km²) direkt nach Durchlauf.
 
-## **📊 Exemplarische Ergebnisse**
+## **📊 Aktuelle Ergebnisse (Stand: 2026)**
 
-Das System liefert quantitative Aussagen zur digitalen Infrastruktur:
+### **Visualisierung der Versorgungslücken**
+Die folgende Karte zeigt die identifizierten "White Spots", gefiltert nach ihrer wirtschaftlichen Relevanz (Wohnen/Gewerbe vs. Natur).
+
+![Strategische Glasfaser-Karte Berlin](assets/berlin_strategie_karte.png)
+
+---
+
+### **1. Infrastruktur-Status (Gesamtfläche)**
+Basis-Analyse der Netzabdeckung über das gesamte Stadtgebiet:
 
 | Status | Fläche (km²) | Beschreibung |
 | :---- | :---- | :---- |
-| **Wettbewerb** | 74.63 | Infrastruktur beider Provider vorhanden |
+| **Wettbewerb** | 74.62 | Infrastruktur beider Provider vorhanden |
 | **Monopol Telekom** | 33.71 | Exklusive Versorgung durch Telekom |
-| **Monopol Vodafone** | 246.16 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
-| **White Spot** | 531.65 | Keine gigabitfähige Infrastruktur erkannt |
+| **Monopol Vodafone** | 246.14 | Exklusive Versorgung durch Vodafone (Coax/Fiber) |
+| **Kein Netz (White Spot)** | 531.65 | Keine gigabitfähige Infrastruktur erkannt |
+
+### **2. Vertriebs-Potenzial (Smart Analysis)**
+Durch die Verschneidung mit Landnutzungsdaten (ISU5) wurde das **wirtschaftlich relevante Potenzial** pro Bezirk ermittelt.
+* **High Potential:** Unversorgte Wohn- und Mischgebiete.
+* **Mid Potential:** Unversorgte Kleingärten, Sport- und Kulturflächen.
+
+| Bezirk | Versorgungsgrad (High) | 🔴 High Potential Gap (km²) | 🟡 Mid Potential Gap (km²) |
+| :--- | :---: | :---: | :---: |
+| **Treptow-Köpenick** | 58.9% | **16.22** | 7.84 |
+| **Pankow** | 59.1% | **13.76** | 10.11 |
+| **Spandau** | 61.3% | **12.49** | 6.28 |
+| **Marzahn-Hellersdorf** | 67.6% | **10.29** | 2.17 |
+| **Lichtenberg** | 56.4% | **9.86** | 5.52 |
+| **Mitte** | 53.1% | **8.97** | 1.51 |
+| **Tempelhof-Schöneberg** | 69.0% | **8.13** | 3.24 |
+| **Steglitz-Zehlendorf** | 82.4% | **7.08** | 3.76 |
+| **Reinickendorf** | 79.1% | **7.04** | 4.21 |
+| **Neukölln** | 76.2% | **5.43** | 5.13 |
+| **Charlottenburg-Wilm.** | 70.3% | **5.38** | 5.29 |
+| **Friedrichshain-Kreuzberg** | 53.4% | **5.06** | 0.52 |
+
+> **Fazit:** Während Innenstadtbezirke oft geometrisch gut versorgt wirken, zeigen Außenbezirke wie Treptow-Köpenick und Pankow den größten absoluten Nachholbedarf an relevanter Fläche.
 
 ## **⚠️ Disclaimer**
 

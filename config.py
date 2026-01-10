@@ -8,14 +8,14 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
-# Ensure directories exist (simple check helper for scripts)
-# Note: Actual creation often happens in steps or main, but we define paths here.
-
 CRS = "EPSG:25833"  # UTM 33N (Berlin Standard)
 
 # --- LOGGING CONFIG ---
-def get_log_path(filename: str) -> str:
-    return os.path.join(LOG_DIR, filename)
+LOG_FILE_PATH = os.path.join(LOG_DIR, "pipeline_full.log")
+
+def get_log_path(filename: str = None) -> str:
+    """Returns the central log file path."""
+    return LOG_FILE_PATH
 
 # --- S01 DOWNLOADER CONFIG ---
 ANALYSE_BBOX = {
@@ -25,7 +25,7 @@ ANALYSE_BBOX = {
     "Y_ENDE": 6840000.0
 }
 
-DOWNLOAD_MAX_WORKERS = 20
+DOWNLOAD_MAX_WORKERS = os.cpu_count()
 
 @dataclass
 class LayerConfig:
@@ -110,7 +110,23 @@ ENRICHMENT_OUTPUT_GPKG = os.path.join(OUTPUT_DIR, "05_master_analysis.gpkg")
 
 WFS_URLS = {
     "BEZIRKE": "https://gdi.berlin.de/services/wfs/alkis_bezirke?service=wfs&version=2.0.0&request=GetFeature&typeNames=alkis_bezirke:bezirksgrenzen&outputFormat=application/json&srsName=EPSG:25833",
-    "ISU5": "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=ua_flaechennutzung:d_reale_nutzung_vegetationsbedeckung_2023&OUTPUTFORMAT=application/json"
+    "ISU5": "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?service=wfs&version=2.0.0&request=GetFeature&typeNames=ua_flaechennutzung:c_reale_nutzung_2021&outputFormat=application/json&srsName=EPSG:25833"
+}
+
+# Mapping: ARS-Schlüssel -> Name
+DISTRICT_MAPPING = {
+    '11000001': 'Mitte',
+    '11000002': 'Friedrichshain-Kr.',
+    '11000003': 'Pankow',
+    '11000004': 'Charlottenburg-Wilm.',
+    '11000005': 'Spandau',
+    '11000006': 'Steglitz-Zehl.',
+    '11000007': 'Tempelhof-Schön.',
+    '11000008': 'Neukölln',
+    '11000009': 'Treptow-Köpenick',
+    '11000010': 'Marzahn-Hellersdorf',
+    '11000011': 'Lichtenberg',
+    '11000012': 'Reinickendorf'
 }
 
 # --- S06 VISUALIZATION CONFIG ---
@@ -119,12 +135,20 @@ VISUALIZATION_MAP_PNG = os.path.join(OUTPUT_DIR, "berlin_strategie_karte.png")
 VISUALIZATION_MAP_HTML = os.path.join(OUTPUT_DIR, "berlin_interaktiv.html")
 
 VISUALIZATION_COLORS = {
-    "Wettbewerb": "#228B22",       # Forest Green (Alles super)
-    "Telekom": "#E20074",          # Telekom Magenta
-    "Vodafone": "#E60000",         # Vodafone Rot
-    "Geplant": "#1E90FF",          # Dodger Blue
-    "Lücke (White Spot)": "#FF8C00",# Dark Orange (Warnung!)
-    "Sonstiges": "#D3D3D3"         # Light Grey (Hintergrund)
+    # Netz-Status (Bestand)
+    "Wettbewerb": "#228B22",         # Forest Green (Bleibt grün)
+    "Telekom": "#E20074",            # Telekom Magenta (Bleibt)
+    "Vodafone": "#E60000",           # Vodafone Rot (Bleibt)
+    
+    # Planung (Neu: Gelb statt Blau -> wie Baustelle)
+    "Geplant (Telekom)": "#FFD700",  # Gold/Gelb
+    
+    # Potenzial-Ampel (Neu: Blau-Spektrum für maximalen Kontrast zu Rot)
+    "Potenzial (Hoch)": "#00008B",   # DarkBlue (Sehr dunkel, sehr wichtig!)
+    "Potenzial (Mittel)": "#4169E1", # RoyalBlue (Mittel)
+    "Potenzial (Niedrig)": "#E6E6FA",# Lavender (Ganz helles Lila, fast weiß)
+    
+    "Sonstiges": "#D3D3D3"           # Light Grey
 }
 
 # --- PIPELINE STEPS ---
