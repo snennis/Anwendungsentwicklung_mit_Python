@@ -137,8 +137,8 @@ VISUALIZATION_MAP_HTML = os.path.join(OUTPUT_DIR, "berlin_interaktiv.html")
 VISUALIZATION_COLORS = {
     # Netz-Status (Bestand)
     "Wettbewerb": "#228B22",         # Forest Green (Bleibt grün)
-    "Telekom": "#E20074",            # Telekom Magenta (Bleibt)
-    "Vodafone": "#E60000",           # Vodafone Rot (Bleibt)
+    "Telekom": "#f502d4",            # Telekom Magenta (Bleibt)
+    "Vodafone": "#b01105",           # Vodafone Rot (Bleibt)
     
     # Planung (Neu: Gelb statt Blau -> wie Baustelle)
     "Geplant (Telekom)": "#FFD700",  # Gold/Gelb
