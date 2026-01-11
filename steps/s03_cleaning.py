@@ -146,11 +146,12 @@ def main() -> None:
 
     memory_buffer = {}
 
-    # 3. Parallel ausführen
-    with ProcessPoolExecutor() as executor:
-        results = list(executor.map(worker_func, CLEANING_LAYERS))
+    # 3. run cleaning in parallel
+    cpu_count = min(multiprocessing.cpu_count(), len(CLEANING_LAYERS))
+    with ProcessPoolExecutor(max_workers=cpu_count) as executor:
+        results = list(executor.map(worker_func, CLEANING_LAYERS, chunksize=1))
 
-        # Ergebnisse einsammeln
+        # collect results
         for key, gdf in results:
             if key and gdf is not None:
                 memory_buffer[key] = gdf
