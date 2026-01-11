@@ -1,3 +1,6 @@
+"""
+cofiguration module for the fiber optic analysis pipeline
+"""
 import os
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any
@@ -8,13 +11,21 @@ OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 LOG_DIR = os.path.join(BASE_DIR, "logs")
 
-CRS = "EPSG:25833"  # UTM 33N (Berlin Standard)
+CRS = "EPSG:25833"  # UTM 33N for berlin area
 
 # --- LOGGING CONFIG ---
 LOG_FILE_PATH = os.path.join(LOG_DIR, "pipeline_full.log")
 
 def get_log_path(filename: str = None) -> str:
-    """Returns the central log file path."""
+    """
+    returns the full path to a log file in the LOG_DIR
+
+    Args:
+        filename (str): optional filename, defaults to main log file if none
+
+    Returns:
+        str: full path to the log file
+    """
     return LOG_FILE_PATH
 
 # --- S01 DOWNLOADER CONFIG ---
@@ -25,10 +36,14 @@ ANALYSE_BBOX = {
     "Y_ENDE": 6840000.0
 }
 
+# number of parallel workers for downloading tiles
 DOWNLOAD_MAX_WORKERS = os.cpu_count()
 
 @dataclass
 class LayerConfig:
+    """
+    config for a download layer
+    """
     name: str
     service_type: str
     base_url: str
@@ -42,13 +57,14 @@ class LayerConfig:
     bboxSR: str = "3857"
     imageSR: str = "3857"
 
-# Grid Parameter (Optimized)
+# optimized Grid Parameter
 tk_res = (1488381.81 - 1487158.82) / 256.0
 tk_dim = 2048 * tk_res
 vf_res = (1489909.16 - 1487728.32) / 1506.0
 vf_w = 3000 * vf_res
 vf_h = int(3000 * (1793/1506)) * vf_res
 
+# download layer config
 DOWNLOAD_LAYERS = [
     LayerConfig("Telekom_Fiber_Total", "wms", "https://t-map.telekom.de/tmap2/geoserver/public/tmap/public/wms", 
                "public:coverage_fixedline_fiber", tk_dim, tk_dim, 2048, 2048, os.path.join(CACHE_DIR, "tiles_tk_fiber")),
@@ -59,6 +75,9 @@ DOWNLOAD_LAYERS = [
 # --- S02 PROCESSOR CONFIG ---
 @dataclass
 class ExtractionRule:
+    """
+    rule for extracting feats from downloaded layers
+    """
     name: str
     color_rgba: Tuple[int, int, int, int]
     output_gpkg: str
@@ -66,15 +85,28 @@ class ExtractionRule:
 
 @dataclass
 class ProcessConfig:
+    """
+    config for processing a downloaded layer
+    """
     name: str
     subdir: str
     rules: List[ExtractionRule]
 
 def hex_to_rgba(hex_code: str) -> Tuple[int, int, int, int]:
+    """
+    converts a hex color code to an RGBA tuple
+
+    Args:
+        hex_code (str): hex color code (e.g. "#FF5733")
+
+    Returns:
+        Tuple[int, int, int, int]: RGBA color tuple
+    """
     hex_code = hex_code.lstrip('#')
     rgb = tuple(int(hex_code[i:i+2], 16) for i in (0, 2, 4))
     return (*rgb, 255)
 
+# processing layer config
 PROCESSING_LAYERS = [
     ProcessConfig("Telekom Fiber", os.path.join(CACHE_DIR, "tiles_tk_fiber"), [
         ExtractionRule("2000 Mbit", hex_to_rgba("#610332"), os.path.join(CACHE_DIR, "raw_tk_2000.gpkg"), "2000"),
@@ -108,6 +140,7 @@ ENRICHMENT_INPUT_GPKG = ANALYSIS_OUTPUT_GPKG
 # Final result goes to OUTPUT_DIR
 ENRICHMENT_OUTPUT_GPKG = os.path.join(OUTPUT_DIR, "05_master_analysis.gpkg")
 
+# wfs urls for enrichment data
 WFS_URLS = {
     "BEZIRKE": "https://gdi.berlin.de/services/wfs/alkis_bezirke?service=wfs&version=2.0.0&request=GetFeature&typeNames=alkis_bezirke:bezirksgrenzen&outputFormat=application/json&srsName=EPSG:25833",
     "ISU5": "https://gdi.berlin.de/services/wfs/ua_flaechennutzung?service=wfs&version=2.0.0&request=GetFeature&typeNames=ua_flaechennutzung:c_reale_nutzung_2021&outputFormat=application/json&srsName=EPSG:25833"
@@ -135,18 +168,18 @@ VISUALIZATION_MAP_PNG = os.path.join(OUTPUT_DIR, "berlin_strategie_karte.png")
 VISUALIZATION_MAP_HTML = os.path.join(OUTPUT_DIR, "berlin_interaktiv.html")
 
 VISUALIZATION_COLORS = {
-    # Netz-Status (Bestand)
-    "Wettbewerb": "#228B22",         # Forest Green (Bleibt grün)
-    "Telekom": "#f502d4",            # Telekom Magenta (Bleibt)
-    "Vodafone": "#b01105",           # Vodafone Rot (Bleibt)
+    # colors for providers and statuses
+    "Wettbewerb": "#228B22", # Forest Green
+    "Telekom": "#f502d4", # Pink (better visibility)
+    "Vodafone": "#b01105", # Dark Red (better visibility)
     
     # Planung (Neu: Gelb statt Blau -> wie Baustelle)
     "Geplant (Telekom)": "#FFD700",  # Gold/Gelb
     
-    # Potenzial-Ampel (Neu: Blau-Spektrum für maximalen Kontrast zu Rot)
-    "Potenzial (Hoch)": "#00008B",   # DarkBlue (Sehr dunkel, sehr wichtig!)
-    "Potenzial (Mittel)": "#4169E1", # RoyalBlue (Mittel)
-    "Potenzial (Niedrig)": "#E6E6FA",# Lavender (Ganz helles Lila, fast weiß)
+    # blue for potential levels
+    "Potenzial (Hoch)": "#00008B",   # Dark Blue (high)
+    "Potenzial (Mittel)": "#4169E1", # RoyalBlue (mid)
+    "Potenzial (Niedrig)": "#E6E6FA",# Lavender (low)
     
     "Sonstiges": "#D3D3D3"           # Light Grey
 }
