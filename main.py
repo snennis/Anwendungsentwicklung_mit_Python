@@ -26,8 +26,7 @@ def setup_directory_structure() -> None:
     """
     # comes from config.py
     for d in [BASE_DIR, OUTPUT_DIR, CACHE_DIR, LOG_DIR]:
-        if not os.path.exists(d):
-            os.makedirs(d)
+        os.makedirs(d, exist_ok=True)
 
 def setup_central_logging() -> None:
     """
