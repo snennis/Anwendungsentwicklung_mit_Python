@@ -3,6 +3,7 @@ async downloader for geospatial raster data with caching mechanism.
 downloads tiles asynchronously using aiohttp and aiofiles.
 """
 import os
+import math
 import asyncio # asynchronous programming
 import aiohttp # async http client
 import aiofiles # async file operations
@@ -215,13 +216,15 @@ async def download_worker(session: aiohttp.ClientSession, task: DownloadTask, se
 
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     """
-    prepares download tasks for a given layer and bbox
-    1. iterates over bbox in steps of tile size
-    2. creates DownloadTask for each tile
+    prepares download tasks for a given layer and bounding box
+    1. calculates number of rows and columns based on bbox and tile size
+    2. iterates over rows and columns to create DownloadTask objects
+    3. computes bbox string and pgw content for each tile
+    4. appends tasks to list
 
     Args:
-        layer LayerConfig: layer configuration
-        bbox Dict: bounding box with X_START, X_ENDE, Y_START, Y_ENDE keys
+        layer (LayerConfig): layer configuration
+        bbox (Dict): bounding box with keys "X_START", "Y_START", "X_ENDE", "Y_ENDE"
 
     Returns:
         List[DownloadTask]: list of download tasks
@@ -230,43 +233,58 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     save_dir = layer.subdir
     os.makedirs(save_dir, exist_ok=True)
 
-    y = bbox["Y_START"]
-    row_idx = 0
-    while y > bbox["Y_ENDE"]:
+    num_rows = math.ceil((bbox["Y_START"] - bbox["Y_ENDE"]) / layer.kachel_hoehe_meter)
+    num_cols = math.ceil((bbox["X_ENDE"] - bbox["X_START"]) / layer.kachel_breite_meter)
+
+    for row_idx in range(num_rows):
+        y = bbox["Y_START"] - (row_idx * layer.kachel_hoehe_meter)
         current_y_min = y - layer.kachel_hoehe_meter
-        x = bbox["X_START"]
-        col_idx = 0
-        while x < bbox["X_ENDE"]:
+
+        for col_idx in range(num_cols):
+            x = bbox["X_START"] + (col_idx * layer.kachel_breite_meter)
             current_x_max = x + layer.kachel_breite_meter
+
+            # Pre-compute bbox_str nur einmal
+            bbox_str = f"{x},{current_y_min},{current_x_max},{y}"
+
             fname = f"z{row_idx:03d}_s{col_idx:03d}.png"
             fpath = os.path.join(save_dir, fname)
             pgw = erstelle_pgw_inhalt(x, current_y_min, current_x_max, y, layer.pixel_width, layer.pixel_height)
-            bbox_str = f"{x},{current_y_min},{current_x_max},{y}"
-            
-            params = {}
-            if layer.service_type == "wms":
-                params = {
-                    'SERVICE': 'WMS', 'VERSION': '1.1.1', 'REQUEST': 'GetMap',
-                    'FORMAT': 'image/png', 'TRANSPARENT': 'true',
-                    'LAYERS': layer.layers_param, 'STYLES': '', 'SRS': 'EPSG:3857', 
-                    'WIDTH': str(layer.pixel_width), 'HEIGHT': str(layer.pixel_height), 'BBOX': bbox_str
-                }
-            else:
-                params = {
-                    'bbox': bbox_str, 'size': f"{layer.pixel_width},{layer.pixel_height}",
-                    'dpi': layer.dpi, 'format': 'png32', 'transparent': 'true',
-                    'bboxSR': layer.bboxSR, 'imageSR': layer.imageSR, 'layers': layer.layers_param, 'f': 'image'
-                }
 
-            # tile id for logging
+            # Call params function
+            params = _get_params(layer, bbox_str)
+
             t_id = f"{layer.name}_{row_idx}_{col_idx}"
             tasks.append(DownloadTask(url=layer.base_url, params=params, filepath=fpath, pgw_content=pgw, tile_id=t_id))
 
-            x = current_x_max
-            col_idx += 1
-        y = current_y_min
-        row_idx += 1
     return tasks
+
+
+def _get_params(layer: LayerConfig, bbox_str: str) -> Dict[str, Any]:
+    """
+    helper function to get reqeuest parameters based on service type
+
+    Args:
+        layer (LayerConfig): layer configuration
+        bbox_str (str): bounding box string
+
+    Returns:
+        Dict[str, Any]: request parameters
+    """
+    if layer.service_type == "wms":
+        return {
+            'SERVICE': 'WMS', 'VERSION': '1.1.1', 'REQUEST': 'GetMap',
+            'FORMAT': 'image/png', 'TRANSPARENT': 'true',
+            'LAYERS': layer.layers_param, 'STYLES': '', 'SRS': 'EPSG:3857',
+            'WIDTH': str(layer.pixel_width), 'HEIGHT': str(layer.pixel_height), 'BBOX': bbox_str
+        }
+    else:
+        return {
+            'bbox': bbox_str, 'size': f"{layer.pixel_width},{layer.pixel_height}",
+            'dpi': layer.dpi, 'format': 'png32', 'transparent': 'true',
+            'bboxSR': layer.bboxSR, 'imageSR': layer.imageSR, 'layers': layer.layers_param, 'f': 'image'
+        }
+
 
 async def run_async_download() -> None:
     """
@@ -286,8 +304,15 @@ async def run_async_download() -> None:
 
     # TCPConnector is optimizing connection pooling
     # TCPConnector with ssl context and no limit on connections (semaphore used instead)
-    connector = aiohttp.TCPConnector(ssl=ssl_context, limit=0, ttl_dns_cache=300)
-    timeout = aiohttp.ClientTimeout(total=60)  # general timeout for requests
+    connector = aiohttp.TCPConnector(ssl=ssl_context,
+                                     limit=MAX_CONCURRENT_REQUESTS,
+                                     limit_per_host=20,
+                                     ttl_dns_cache=600,
+                                     enable_cleanup_closed=True,
+                                     force_close=False)
+    timeout = aiohttp.ClientTimeout(total=15,
+                                    connect=5,
+                                    sock_read=10)
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
 
