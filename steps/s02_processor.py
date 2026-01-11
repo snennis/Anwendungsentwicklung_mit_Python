@@ -1,3 +1,7 @@
+"""
+processes the downloaded map tiles into vector data based on predefined color rules.
+saves the extracted features into a geopackage format.
+"""
 import os
 import sys
 import glob
@@ -36,11 +40,29 @@ except ImportError:
 
 from config import BASE_DIR, get_log_path, ProcessConfig, ExtractionRule, PROCESSING_LAYERS, DOWNLOAD_MAX_WORKERS
 
-def process_single_file_wrapper(args):
-    """Wrapper for multiprocessing to unpack arguments."""
+def process_single_file_wrapper(args) -> List[dict]:
+    """
+    wrapper function to unpack arguments for multiprocessing
+
+    Args:
+        args (tuple): tuple containing filepath (str) and rule (ExtractionRule)
+
+    Returns:
+        List[dict]: list of extracted features
+    """
     return process_single_file(*args)
 
 def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
+    """
+    processes a single raster file to extract features based on the given rule
+
+    Args:
+        filepath (str): path to the raster file
+        rule (ExtractionRule): extraction rule containing color and category info
+
+    Returns:
+        List[dict]: list of extracted features
+    """
     features = []
     try:
         with rasterio.open(filepath) as src:
@@ -48,7 +70,7 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
             transform = src.transform
             target = rule.color_rgba
             
-            # Maskierung
+            # mask for pixels matching the target color with alpha > 100
             mask = np.logical_and.reduce((
                 rgba[0] == target[0], rgba[1] == target[1],
                 rgba[2] == target[2], rgba[3] > 100
@@ -67,7 +89,16 @@ def process_single_file(filepath: str, rule: ExtractionRule) -> List[dict]:
         pass
     return features
 
-def process_layer_stream(config: ProcessConfig):
+def process_layer_stream(config: ProcessConfig) -> None:
+    """
+    processes all tiles in a given layer configuration
+
+    Args:
+        config (ProcessConfig): configuration for the processing layer
+
+    Returns:
+        None
+    """
     tile_dir = config.subdir # Full path
     files = glob.glob(os.path.join(tile_dir, "*.png"))
     valid_files = [f for f in files if os.path.exists(f.replace(".png", ".pgw"))]
@@ -77,7 +108,7 @@ def process_layer_stream(config: ProcessConfig):
     for rule in config.rules:
         all_features = []
 
-        # Wir nutzen alle Kerne für maximale Geschwindigkeit
+        # use all available CPU cores
         max_workers = DOWNLOAD_MAX_WORKERS
         
         task_args = [(f, rule) for f in valid_files]
@@ -99,13 +130,18 @@ def process_layer_stream(config: ProcessConfig):
         if all_features:
             out_path = rule.output_gpkg # Full path
             gdf = geopandas.GeoDataFrame(all_features, crs="EPSG:3857")
-            # Optimierung: Engine pyogrio für 10x Speed beim Schreiben
             gdf.to_file(out_path, driver="GPKG", layer=rule.layer_name, engine="pyogrio")
             print(f"     ✅ Gespeichert: {os.path.basename(out_path)} ({len(gdf)} Features)")
         else:
             print(f"     ℹ️ Leer: {rule.name}")
 
-def main():
+def main() -> None:
+    """
+    main function to process all layers as per config
+
+    Returns:
+        None
+    """
     if not os.path.exists(BASE_DIR): return
     # Logging configured in main.py
     
