@@ -110,13 +110,13 @@ def process_layer_stream(config: ProcessConfig) -> None:
 
         # use all available CPU cores
         max_workers = DOWNLOAD_MAX_WORKERS
-        
+
         task_args = [(f, rule) for f in valid_files]
         
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             # map returns results in order
             results = list(tqdm(
-                executor.map(process_single_file_wrapper, task_args), 
+                executor.map(process_single_file_wrapper, task_args),
                 total=len(valid_files), 
                 desc=f"  -> {rule.name}", 
                 unit="tile", 
@@ -126,7 +126,7 @@ def process_layer_stream(config: ProcessConfig) -> None:
         # Flatten results
         for res in results:
             all_features.extend(res)
-            
+
         if all_features:
             out_path = rule.output_gpkg # Full path
             gdf = geopandas.GeoDataFrame(all_features, crs="EPSG:3857")
