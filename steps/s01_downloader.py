@@ -305,14 +305,14 @@ async def run_async_download() -> None:
     # TCPConnector is optimizing connection pooling
     # TCPConnector with ssl context and no limit on connections (semaphore used instead)
     connector = aiohttp.TCPConnector(ssl=ssl_context,
-                                     limit=MAX_CONCURRENT_REQUESTS,
-                                     limit_per_host=20,
-                                     ttl_dns_cache=600,
-                                     enable_cleanup_closed=True,
-                                     force_close=False)
-    timeout = aiohttp.ClientTimeout(total=15,
-                                    connect=5,
-                                    sock_read=10)
+                                     limit=MAX_CONCURRENT_REQUESTS, # overall limit -> semaphore
+                                     limit_per_host=20, # limit per host
+                                     ttl_dns_cache=600, # DNS cache time-to-live -> 10 minutes
+                                     enable_cleanup_closed=True, # cleanup closed connections
+                                     force_close=False) # do not force close connections
+    timeout = aiohttp.ClientTimeout(total=15, # total timeout for requests
+                                    connect=5, # connection timeout
+                                    sock_read=10) # socket read timeout
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
 
