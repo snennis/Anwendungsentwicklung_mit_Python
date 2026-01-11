@@ -1,23 +1,29 @@
+"""
+async downloader for geospatial raster data with caching mechanism.
+downloads tiles asynchronously using aiohttp and aiofiles.
+"""
 import os
-import asyncio
-import aiohttp
-import aiofiles
+import asyncio # asynchronous programming
+import aiohttp # async http client
+import aiofiles # async file operations
 import logging
 import time
 from typing import Dict, Any, List
+
+from aiohttp import ClientSession
 from tqdm.asyncio import tqdm
 from dataclasses import dataclass
 from config import BASE_DIR, ANALYSE_BBOX, LayerConfig, DOWNLOAD_LAYERS
 import ssl
 from datetime import datetime, timedelta
 
-# --- KONFIGURATION ---
-# SSL Context mit deaktivierter Verifikation
+# Configuration
+# ssl context to ignore certificate errors
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False
 ssl_context.verify_mode = ssl.CERT_NONE
-# Wie viele Anfragen gleichzeitig?
-# Zu hoch = Ban Gefahr! 50 ist aggressiv, aber meist okay.
+
+# max concurrent requests for aiohttp
 MAX_CONCURRENT_REQUESTS = 50
 
 @dataclass
@@ -33,39 +39,47 @@ class DownloadTask:
 
 def get_cache_metadata_file(layer_subdir: str) -> str:
     """
-    Gibt den Pfad zur Cache-Metadatei zurück (JSON mit Download-Datum)
+    returns path to cache metadata file (json with download date)
+
+    Args:
+        layer_subdir (str): layer subdirectory
+
+    Returns:
+        str: path to metadata file
     """
     return os.path.join(layer_subdir, ".cache_metadata.txt")
 
-async def is_cache_valid(layer: LayerConfig, session: aiohttp.ClientSession, cache_age_days: int = 7) -> bool:
+async def is_cache_valid(layer: LayerConfig, session: ClientSession, cache_age_days: int = 7) -> bool:
     """
-    Prüft ob die gecachten Daten noch gültig sind:
-    1. Existieren die Dateien?
-    2. Sind sie jünger als cache_age_days?
+    checks if the cache for a given layer is valid based on age and existence of files
+    1. checks if directory and files exist
+    2. gets modification date of first png file
+    3. checks if cache is older then cache_age_days
 
     Args:
-        layer: Layer-Konfiguration
-        session: aiohttp Session
-        cache_age_days: Maximales Alter der Datei in Tagen (default: 7 Tage)
+        layer (LayerConfig): layer configuration
+        session (ClientSession): aiohttp client session
+        cache_age_days (int): maximum age of cache in days (default: 7)
 
     Returns:
-        bool: True wenn Cache valid, False wenn neu downloaden notwendig
+        bool: true if cache is valid, false otherwise
     """
+    # setup logger
     logger = logging.getLogger("DOWNLOADER")
     metadata_file = get_cache_metadata_file(layer.subdir)
 
-    # 1. Prüfe ob Verzeichnis und Dateien existieren
+    # 1. check if directory and files exist
     if not os.path.exists(layer.subdir):
         logger.info(f"📂 Kein Cache für {layer.name} (Verzeichnis existiert nicht)")
         return False
 
-    # Zähle PNG-Dateien
+    # count png files
     png_count = len([f for f in os.listdir(layer.subdir) if f.endswith('.png')])
     if png_count == 0:
         logger.info(f"📂 Kein Cache für {layer.name} (Keine Dateien gefunden)")
         return False
 
-    # 2. Hole das Änderungsdatum der ersten PNG-Datei
+    # 2. get modification date of first png file
     try:
         png_files = [f for f in os.listdir(layer.subdir) if f.endswith('.png')]
         if not png_files:
@@ -75,16 +89,17 @@ async def is_cache_valid(layer: LayerConfig, session: aiohttp.ClientSession, cac
         mtime = os.path.getmtime(first_png)
         cache_date = datetime.fromtimestamp(mtime)
 
-        # 3. Prüfe ob Cache älter als cache_age_days ist
+        # 3. check if cache is older then cache_age_days
         age = datetime.now() - cache_date
         max_age = timedelta(days=cache_age_days)
 
         if age <= max_age:
             logger.info(f"✅ Cache gültig für {layer.name} ({age.days} Tage alt, max. {cache_age_days} Tage)")
-            # Speichere auch die Metadatei für spätere Referenz
+            # save metadata file as well
             with open(metadata_file, 'w') as f:
                 f.write(cache_date.isoformat())
             return True
+
         else:
             logger.info(f"❌ Cache zu alt für {layer.name} ({age.days} Tage alt, max. {cache_age_days} Tage)")
             return False
@@ -94,9 +109,15 @@ async def is_cache_valid(layer: LayerConfig, session: aiohttp.ClientSession, cac
         return False
 
 
-def save_cache_metadata(layer: LayerConfig):
+def save_cache_metadata(layer: LayerConfig) -> None:
     """
-    Speichert das aktuelle Datum als Cache-Metadaten
+    saves cache metadata file with current date
+
+    Args:
+        layer (LayerConfig): layer config
+
+    Returns:
+        None
     """
     metadata_file = get_cache_metadata_file(layer.subdir)
     with open(metadata_file, 'w') as f:
@@ -125,16 +146,30 @@ def erstelle_pgw_inhalt(xmin: float, ymin: float, xmax: float, ymax: float, w_px
 
 async def download_worker(session: aiohttp.ClientSession, task: DownloadTask, semaphore: asyncio.Semaphore) -> bool:
     """
-    Asynchroner Worker. Nutzt Semaphore um die Anzahl gleichzeitiger Requests zu begrenzen.
+    async download worker for a single tile and uses semaphore to limit concurrent downloads
+    1. sends async GET request
+    2. checks response status
+    3. reads content
+    4. plausibility check (file size)
+    5. async writes file and pgw
+
+    Args:
+        session (aiohttp.ClientSession): aiohttp session
+        task (DownloadTask): download task
+        semaphore (asyncio.Semaphore): semaphore to limit concurrent downloads
+
+    Returns:
+        bool: true if download and save were successful, false otherwise
     """
     logger = logging.getLogger("DOWNLOADER")
 
-    # Semaphore blockiert, wenn zu viele Anfragen gleichzeitig laufen
+    # semaphore blocks process if limit is reached
     async with semaphore:
         try:
+            # 1. send async GET reuqest
             async with session.get(task.url, params=task.params, timeout=30) as response:
 
-                # 1. Status Check
+                # 2. check response status
                 if response.status != 200:
                     if response.status == 404:
                         logger.debug(f"Kachel nicht gefunden (404): {task.tile_id}")
@@ -144,20 +179,20 @@ async def download_worker(session: aiohttp.ClientSession, task: DownloadTask, se
                         logger.error(f"❌ HTTP {response.status} bei {task.tile_id}")
                     return False
 
-                # 2. Content lesen
+                # 3. read content
                 content = await response.read()
 
-                # 3. Plausibilitäts-Check (Leere Bilder ignorieren)
+                # 4. check plausibility (file size) -> min 500 bytes
                 if len(content) < 500:
                     logger.warning(f"⚠️ Datei zu klein (<500b), ignoriere: {task.tile_id}")
                     return False
 
-                # 4. Asynchrones Schreiben (Non-blocking I/O)
+                # 4. async write file and pgw
                 try:
                     async with aiofiles.open(task.filepath, 'wb') as f:
                         await f.write(content)
 
-                    # PGW Datei (ist winzig, kann auch blockierend geschrieben werden, aber sauberer so)
+                    # pgw file (can be written synchronously as its small even if process is blocked)
                     pgw_path = task.filepath.replace(".png", ".pgw")
                     async with aiofiles.open(pgw_path, 'w') as f:
                         await f.write(task.pgw_content)
@@ -181,6 +216,8 @@ async def download_worker(session: aiohttp.ClientSession, task: DownloadTask, se
 def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     """
     prepares download tasks for a given layer and bbox
+    1. iterates over bbox in steps of tile size
+    2. creates DownloadTask for each tile
 
     Args:
         layer LayerConfig: layer configuration
@@ -191,8 +228,9 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     """
     tasks = []
     save_dir = layer.subdir
-    if not os.path.exists(save_dir): os.makedirs(save_dir)
-    
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+
     y = bbox["Y_START"]
     row_idx = 0
     while y > bbox["Y_ENDE"]:
@@ -221,7 +259,7 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
                     'bboxSR': layer.bboxSR, 'imageSR': layer.imageSR, 'layers': layer.layers_param, 'f': 'image'
                 }
 
-            # Tile ID für Logs
+            # tile id for logging
             t_id = f"{layer.name}_{row_idx}_{col_idx}"
             tasks.append(DownloadTask(url=layer.base_url, params=params, filepath=fpath, pgw_content=pgw, tile_id=t_id))
 
@@ -231,8 +269,14 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
         row_idx += 1
     return tasks
 
-async def run_async_download():
-    # Logging Setup für Standalone-Test
+async def run_async_download() -> None:
+    """
+    main async download function
+
+    Returns:
+        None
+    """
+    # setup logger
     if not logging.getLogger().handlers:
         logging.basicConfig(level=logging.INFO)
 
@@ -241,14 +285,14 @@ async def run_async_download():
     print(f"🚀 Starte Async-Downloader (High Performance)")
     print(f"   -> Konkurrenz: {MAX_CONCURRENT_REQUESTS} parallele Anfragen")
 
-    # TCPConnector optimiert connection pooling
-    # limit=0 bedeutet keine harte Grenze im Connector, wir regeln das über Semaphore
+    # TCPConnector is optimizing connection pooling
+    # TCPConnector with ssl context and no limit on connections (semaphore used instead)
     connector = aiohttp.TCPConnector(ssl=ssl_context, limit=0, ttl_dns_cache=300)
-    timeout = aiohttp.ClientTimeout(total=60)  # Generelles Timeout
+    timeout = aiohttp.ClientTimeout(total=60)  # general timeout for requests
 
     async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
 
-        # CACHE-CHECK PHASE
+        # cache checking phase
         print(f"\n🔍 Prüfe Cache...")
         layers_to_download = []
 
@@ -266,35 +310,42 @@ async def run_async_download():
 
         print(f"\n⬇️  Starte Download für {len(layers_to_download)}/{len(DOWNLOAD_LAYERS)} Layer...\n")
 
-        # DOWNLOAD PHASE
+        # download phase
         all_tasks = []
         for layer in layers_to_download:
             t = prepare_tasks(layer, ANALYSE_BBOX)
             all_tasks.extend(t)
             print(f"   -> {layer.name}: {len(t)} Kacheln vorbereitet.")
 
-        # Semaphore begrenzt die maximale Anzahl gleichzeitiger Verbindungen
+        # Semaphore is used to limit cocurrent requests
         sem = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
+        # create download tasks
         tasks = [download_worker(session, task, sem) for task in all_tasks]
 
-        # tqdm.gather zeigt den Fortschrittsbalken asynchron an
+        # tqdm.gather shows progress bar for async tasks
         results = await tqdm.gather(*tasks, unit="img", colour="green", desc="Downloading")
 
         success_count = sum(results)
         print(f"✅ Download abgeschlossen: {success_count}/{len(all_tasks)} erfolgreich.")
 
-        # Speichere Cache-Metadaten für heruntergeladene Layer
+        # save cache metadata for downloaded layers
         for layer in layers_to_download:
             save_cache_metadata(layer)
             logger.info(f"💾 Cache-Metadaten gespeichert für {layer.name}")
 
-def main():
+def main() -> None:
+    """
+    main function to run the async downloader
+
+    Returns:
+        None
+    """
     if not os.path.exists(BASE_DIR): os.makedirs(BASE_DIR)
 
     start = time.time()
 
-    # Windows Selector Event Loop Policy Fix (wichtig für Python 3.8+ auf Windows)
+    # Windows specific event loop policy (needed for aiohttp on Windows)
     if os.name == 'nt':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
