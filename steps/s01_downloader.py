@@ -228,8 +228,7 @@ def prepare_tasks(layer: LayerConfig, bbox: Dict) -> List[DownloadTask]:
     """
     tasks = []
     save_dir = layer.subdir
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+    os.makedirs(save_dir, exist_ok=True)
 
     y = bbox["Y_START"]
     row_idx = 0
