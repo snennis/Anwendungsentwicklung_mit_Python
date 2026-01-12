@@ -97,17 +97,22 @@ def main() -> None:
 
     # 4. render bezirke with labels
     logging.info("Zeichne Grenzen und Labels...")
-    # big borders
+    # main black border
     gdf_bezirke.plot(
-        ax=ax, facecolor="none", edgecolor="black", linewidth=2.5, zorder=3, alpha=0.7
+        ax=ax, facecolor="none", edgecolor="black", linewidth=2.5, zorder=3, alpha=0.9
     )
 
     for _, row in gdf_bezirke.iterrows():
         pt = row.geometry.representative_point()
+        # break district names with "-" into multiple lines
+        label = str(row['label']).upper()
+        if '-' in label:
+            label = label.replace('-', '-\n')
+
         # big bold text with halo effect
         txt = ax.text(
-            pt.x, pt.y, str(row['label']).upper(),
-            ha='center', va='center', 
+            pt.x, pt.y, label,
+            ha='center', va='center',
             fontsize=16, # DEUTLICH GRÖSSER
             fontweight='bold', color='black', zorder=4
         )
@@ -150,15 +155,15 @@ def main() -> None:
     logging.info("Erstelle Header & Footer...")
 
     # title
-    ax.text(0.01, 0.99, "STRATEGISCHE GLASFASER-ANALYSE BERLIN", transform=ax.transAxes,
+    ax.text(0.01, 0.99, "Glasfaserabdeckung und Ausbaupotenziale in Berlin (Telekom & Vodafone)", transform=ax.transAxes,
             fontsize=30, fontweight='heavy', color='black', va='top', ha='left', zorder=5)
     
     # text block explanation
     explanation_text = (
-        "Diese Karte visualisiert die Versorgungssituation mit gigabitfähiger Infrastruktur (FTTH/Coax).\n"
-        "Im Fokus steht die Identifikation wirtschaftlich relevanter 'White Spots' (unversorgte Gebiete).\n"
-        "Dafür wurden Netzdaten geometrisch mit der realen Flächennutzung (Wohnen/Gewerbe vs. Natur) verschnitten.\n"
-        "Das Ergebnis priorisiert Lücken nach ihrem Vertriebspotenzial."
+        "Die Karte visualisiert die Glasfaserabdeckung in Berlin \n"
+        "und identifiziert wirtschaftlich relevante Ausbaupotenziale in bislang unversorgten Gebieten.\n"
+        "Hierfür wurden Anbieter-Netzdaten mit realen Nutzungsflächen verschnitten\n"
+        " und White Spots nach ihrem Vert riebs- und Ausbaupotenzial klassifiziert."
     )
 
     # textbox
