@@ -149,12 +149,12 @@ WFS_URLS = {
 # Mapping: ARS-Schlüssel -> Name
 DISTRICT_MAPPING = {
     '11000001': 'Mitte',
-    '11000002': 'Friedrichshain-Kr.',
+    '11000002': 'Friedrichshain-Kreuzberg',
     '11000003': 'Pankow',
-    '11000004': 'Charlottenburg-Wilm.',
+    '11000004': 'Charlottenburg-Wilmersdorf',
     '11000005': 'Spandau',
-    '11000006': 'Steglitz-Zehl.',
-    '11000007': 'Tempelhof-Schön.',
+    '11000006': 'Steglitz-Zehlendorf',
+    '11000007': 'Tempelhof-Schöneberg',
     '11000008': 'Neukölln',
     '11000009': 'Treptow-Köpenick',
     '11000010': 'Marzahn-Hellersdorf',
@@ -169,9 +169,9 @@ VISUALIZATION_MAP_HTML = os.path.join(OUTPUT_DIR, "berlin_interaktiv.html")
 
 VISUALIZATION_COLORS = {
     # colors for providers and statuses
-    "Wettbewerb": "#228B22", # Forest Green
-    "Telekom": "#f502d4", # Pink (better visibility)
-    "Vodafone": "#b01105", # Dark Red (better visibility)
+    "Wettbewerb": "#17e621", # Green
+    "Telekom": "#ff05ee", # Pink (better visibility)
+    "Vodafone": "#bd040d", # Dark Red (better visibility)
     
     # Planung (Neu: Gelb statt Blau -> wie Baustelle)
     "Geplant (Telekom)": "#FFD700",  # Gold/Gelb
