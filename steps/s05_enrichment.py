@@ -1,3 +1,11 @@
+"""
+enrichment step for geospatial data processing
+1. load input data
+2. classify land use priorities
+3. process each district in parallel
+4. calculate statistics
+5. save output data
+"""
 import os
 from typing import Optional, List
 
@@ -13,7 +21,6 @@ import urllib.request
 from concurrent.futures import ProcessPoolExecutor
 from config import BASE_DIR, CRS, ENRICHMENT_INPUT_GPKG, ENRICHMENT_OUTPUT_GPKG, WFS_URLS, DISTRICT_MAPPING, get_log_path
 
-# Landnutzungs-Prioritäten
 LANDUSE_PRIORITY = {
     # HIGH POTENTIAL (Wohnen, Arbeit, Versorgung)
     "Wohnnutzung": "High",
@@ -58,14 +65,30 @@ INPUT_GPKG = ENRICHMENT_INPUT_GPKG
 OUTPUT_GPKG = ENRICHMENT_OUTPUT_GPKG
 LOG_FILE = get_log_path("05_enrichment.log")
 
-def setup_logging():
+def setup_logging() -> None:
+    """
+    sets up logging for the enrichment step
+
+    Returns:
+        None
+    """
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s | %(levelname)-8s | %(message)s',
         handlers=[logging.FileHandler(LOG_FILE, mode='w', encoding='utf-8'), logging.StreamHandler()]
     )
 
-def load_layer_safe(path, layer=None):
+def load_layer_safe(path: str, layer=None) -> gpd.GeoDataFrame:
+    """
+    loads a geospatial layer safely from a file
+
+    Args:
+        path (str): file path
+        layer (str, optional): layer name for multi-layer files
+
+    Returns:
+        gdp.GeoDataFrame: loaded geodataframe or empty on error
+    """
     if not os.path.exists(path):
         return gpd.GeoDataFrame()
     try:
@@ -77,7 +100,7 @@ def load_layer_safe(path, layer=None):
         logging.error(f"Ladefehler {path}: {e}")
         return gpd.GeoDataFrame()
 
-def get_wfs_data(url, name) -> Optional[gpd.GeoDataFrame]:
+def get_wfs_data(url: str, name: str) -> Optional[gpd.GeoDataFrame]:
     """
     loads geodata from a wfs url safely
 
@@ -90,12 +113,12 @@ def get_wfs_data(url, name) -> Optional[gpd.GeoDataFrame]:
     """
     logging.info(f"Lade {name} von GDI Berlin...")
     try:
-
+        # ignore SSL certificate errors
         ssl_context = ssl.create_default_context()
         ssl_context.check_hostname = False
         ssl_context.verify_mode = ssl.CERT_NONE
 
-        # Erstelle einen HTTPS Handler mit dem SSL-Context
+        # creates a http handler with ssl context
         https_handler = urllib.request.HTTPSHandler(context=ssl_context)
         opener = urllib.request.build_opener(https_handler)
         urllib.request.install_opener(opener)
@@ -108,9 +131,18 @@ def get_wfs_data(url, name) -> Optional[gpd.GeoDataFrame]:
         logging.error(f"Download Fehler {name}: {e}")
         return gpd.GeoDataFrame()
 
-def get_landuse_priority(row_series):
+def get_landuse_priority(row_series: pd.Series) -> tuple[str, str]:
     """
-    Ermittelt Priorität basierend auf der Spalte 'nutzung'.
+    determines land use priority from row "nutzung"
+    1. check "nutzung" column
+    2. fallback to "typklar" column -> default to "Unbekannt"
+    3. map to priority using LANDUSE_PRIORITY dict
+
+    Args:
+        row_series (pd.Series): row data
+
+    Returns:
+        tuple[str, str]: priority level and cleaned land use value
     """
     val = "Unbekannt"
     if 'nutzung' in row_series and pd.notna(row_series['nutzung']):
@@ -121,7 +153,16 @@ def get_landuse_priority(row_series):
     priority = LANDUSE_PRIORITY.get(val, "Low")
     return priority, val
 
-def simplify_fiber_status(status_str):
+def simplify_fiber_status(status_str: str) -> str:
+    """
+    simplifies fiber status string to key categories
+
+    Args:
+        status_str (str): original status string
+
+    Returns:
+        str: simplified status category
+    """
     s = str(status_str)
     if "Wettbewerb" in s: return "Wettbewerb"
     if "Telekom" in s and "Monopol" in s: return "Telekom"
@@ -129,7 +170,20 @@ def simplify_fiber_status(status_str):
     if "Planung" in s: return "Geplant"
     return "Kein Netz"
 
-def process_district(args):
+def process_district(args: tuple) -> List[gpd.GeoDataFrame]:
+    """
+    processes a single district for land use and fiber coverage
+    1. pre-filtering
+    2. clipping to district
+    3. intersection with fiber data
+    4. difference to find gaps
+
+    Args:
+        args (tuple): (bezirk_row, gdf_isu, gdf_fiber_active, bezirk_name)
+
+    Returns:
+        List[gdp.GeoDataFrame]: list of processed geodataframes for the district
+    """
     bezirk_row, gdf_isu, gdf_fiber_active, bezirk_name = args
     bezirk_geom = bezirk_row.geometry
     
@@ -210,10 +264,16 @@ def process_district(args):
 
     return final_results
 
-def main():
+def main() -> None:
+    """
+    main function for enrichment step
+
+    Returns:
+        None
+    """
     logging.info("🚀 STARTE ENRICHMENT (V9.0 - District Mapping)")
 
-    # 1. DATEN LADEN
+    # 1. load data
     gdf_fiber = load_layer_safe(INPUT_GPKG, layer="analyse_berlin")
     if gdf_fiber.empty: return
     
